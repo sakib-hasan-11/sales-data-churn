@@ -1,7 +1,50 @@
-name: CI
-on: [push, pull_request]
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
 jobs:
   test:
+    name: Run tests
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11.14"]
+
     steps:
-      - uses: actions/checkout@v3
+      # 1️ Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️ Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 3️ Upgrade pip
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+
+      # 4️ Install dependencies
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      # 5️ Set PYTHONPATH (CRITICAL for src layout)
+      - name: Set PYTHONPATH
+        run: |
+          echo "PYTHONPATH=$PWD" >> $GITHUB_ENV
+
+      # 6️ Run pytest
+      - name: Run tests
+        run: |
+          pytest --show-capture=failed -v
+
