@@ -13,7 +13,7 @@ from src.features.feature_preprocess import preprocess_features
 @pytest.fixture(scope="session")
 def raw_data():
     project_root = Path(__file__).resolve().parents[1]
-    data_path = project_root / "data" / "raw" / "dummy_data.csv"
+    data_path = project_root / 'tests' / "dummy_data.csv"
 
     df = load_data(data_path)
     return df
