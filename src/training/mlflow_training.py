@@ -258,11 +258,7 @@ def train_xgboost_with_mlflow(
             # Also log model using MLflow's built-in method
             safe_threshold = str(threshold_value).replace(".", "_")
 
-            mlflow.xgboost.log_model(
-                model,
-                f"model_threshold_{safe_threshold}",
-                registered_model_name=None,
-            )
+            mlflow.log_artifact(model_pkl_path, artifact_path="models")
 
             # Store run results
             run_result = {
