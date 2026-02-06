@@ -20,13 +20,13 @@ def preprocess_features(
     df = df.copy()
 
     # =====================================================
-    # 1️⃣ LABEL ENCODE GENDER (already normalized)
+    # 1️ LABEL ENCODE GENDER (already normalized)
     # =====================================================
     le_gender = LabelEncoder()
     df["gender"] = le_gender.fit_transform(df["gender"])
 
     # =====================================================
-    # 2️⃣ ONE-HOT ENCODING (normalized column names)
+    # 2️ ONE-HOT ENCODING (normalized column names)
     # =====================================================
 
     subscription_dummies = pd.get_dummies(
@@ -58,7 +58,7 @@ def preprocess_features(
     )
 
     # =====================================================
-    # 3️⃣ DROP ORIGINAL CATEGORICAL COLUMNS
+    # 3️ DROP ORIGINAL CATEGORICAL COLUMNS
     # =====================================================
     df = df.drop(
         columns=[
@@ -67,13 +67,14 @@ def preprocess_features(
             "tenure_category",
             "age_group",
             "spend_category",
+            "customerid",
         ]
     )
 
     # =====================================================
-    # 4️⃣ SCALE NUMERICAL FEATURES
+    # 4️ SCALE NUMERICAL FEATURES
     # =====================================================
-    excluded_cols = {"customerid", "churn", "gender"}
+    excluded_cols = {"churn", "gender"}
     features_to_scale = [
         col
         for col in df.columns
@@ -86,7 +87,7 @@ def preprocess_features(
     print(f"Scaled {len(features_to_scale)} numerical features")
 
     # =====================================================
-    # 5️⃣ SAVE OUTPUT
+    # 5️ SAVE OUTPUT
     # =====================================================
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)

@@ -1,11 +1,14 @@
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from src.data_processing.load import load_data
 from src.data_processing.preprocess import raw_preprocess
 from src.features.build_feature import build_feature
 from src.features.feature_preprocess import preprocess_features
+from src.training.mlflow_training import train_xgboost_with_mlflow
+from src.training.optuna_tuning import optimize_xgboost_hyperparameters
 
 # =====================================================
 # 1️ LOAD RAW DATA
@@ -177,5 +180,201 @@ def test_one_hot_sum_rule(preprocessed_feature_data):
     assert (df[sub_cols].sum(axis=1) <= 1).all()
 
 
+# =====================================================
+# TRAIN TEST SPLIT (REUSABLE FIXTURE) # no need for productin as we will use different test and train data .
+# =====================================================
+from sklearn.model_selection import train_test_split
 
-    
+
+@pytest.fixture(scope="module")
+def train_test_split_data(preprocessed_feature_data, target_col):
+    """
+    Create train-test split once and reuse across:
+    - optuna
+    - mlflow training
+    Avoid redundant splitting.
+    """
+    df = preprocessed_feature_data["df"]
+
+    train_df, test_df = train_test_split(
+        df,
+        test_size=0.2,
+        random_state=42,
+        stratify=df[target_col],
+    )
+
+    return train_df, test_df
+
+
+@pytest.fixture(scope="module")
+def train_data(train_test_split_data):
+    return train_test_split_data[0]
+
+
+@pytest.fixture(scope="module")
+def test_data(train_test_split_data):
+    return train_test_split_data[1]
+
+
+# =====================================================
+# 6️ OPTUNA HYPERPARAMETER TUNING
+# =====================================================
+
+import pytest
+import os
+import pickle
+import mlflow
+
+from src.training.mlflow_training import train_xgboost_with_mlflow
+from src.training.optuna_tuning import optimize_xgboost_hyperparameters
+
+
+@pytest.fixture(scope="session")
+def target_col():
+    return "churn"
+
+
+# -----------------------------------------------------
+# Optuna tuning fixture (runs once)
+# -----------------------------------------------------
+@pytest.fixture(scope="module")
+def run_optuna_tuning(
+    train_data,
+    test_data,
+    target_col,
+    n_trials=10,
+    optimize_metric="recall",
+):
+    return optimize_xgboost_hyperparameters(
+        train_data=train_data,
+        test_data=test_data,
+        target_col=target_col,
+        n_trials=n_trials,
+        optimize_metric=optimize_metric,
+    )
+
+
+def test_optuna_tuning(run_optuna_tuning):
+    """
+    Validate optuna tuning output only.
+    """
+    result = run_optuna_tuning
+
+    assert result is not None
+    assert isinstance(result["best_params"], dict)
+    assert isinstance(result["best_score"], float)
+    assert isinstance(result["all_metrics"], dict)
+
+
+# =====================================================
+# TEMP ARTIFACT DIR (mlruns + model save)
+# Auto deleted after test
+# =====================================================
+@pytest.fixture(scope="function")
+def temp_artifact_dir(tmp_path):
+    """
+    Creates temp directory for:
+    - mlruns
+    - model save
+    Auto removed after test.
+    """
+
+    base_dir = tmp_path
+
+    mlruns_dir = base_dir / "mlruns"
+    model_dir = base_dir / "models"
+
+    mlruns_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    return {
+        "mlruns": str(mlruns_dir),
+        "model_dir": str(model_dir),
+    }
+
+
+# =====================================================
+# MLflow + Training Integration Test
+# =====================================================
+def test_train_with_mlflow_using_optuna_output(
+    train_data,
+    test_data,
+    target_col,
+    run_optuna_tuning,
+    temp_artifact_dir,
+):
+    """
+    Full pipeline test:
+    optuna → training → mlflow logging → model save
+    Works local + CI + container.
+    """
+
+    assert run_optuna_tuning is not None
+    assert "best_params" in run_optuna_tuning
+
+    mlruns_path = temp_artifact_dir["mlruns"]
+    model_dir = temp_artifact_dir["model_dir"]
+
+    # ---------------------------
+    # Run training
+    # ---------------------------
+    results = train_xgboost_with_mlflow(
+        train_data=train_data,
+        test_data=test_data,
+        target_col=target_col,
+        threshold_value=0.5,
+        experiment_name="CI_XGB_MLFLOW_TEST",
+        n_optuna_trials=1,   # small for CI/local
+        n_runs=1,
+        mlflow_tracking_uri=f"file:{mlruns_path}",
+        model_save_dir=model_dir,   # VERY IMPORTANT CHANGE
+    )
+
+    # ---------------------------
+    # Basic result check
+    # ---------------------------
+    assert results is not None
+    assert isinstance(results, dict)
+
+    # ---------------------------
+    # Check model saved
+    # ---------------------------
+    safe_threshold = str(0.5).replace(".", "_")
+    model_filename = f"model_threshold_{safe_threshold}.pkl"
+
+    model_path = os.path.join(model_dir, model_filename)
+
+    assert os.path.exists(model_path), "Model not saved"
+
+
+    with open(model_path, "rb") as f:
+        model = pickle.load(f)
+
+    assert model is not None
+
+    # ---------------------------
+    # Check mlruns created
+    # ---------------------------
+    assert os.path.exists(mlruns_path)
+    assert len(os.listdir(mlruns_path)) > 0
+
+    # ---------------------------
+    # Check MLflow experiment
+    # ---------------------------
+    mlflow.set_tracking_uri(f"file:{mlruns_path}")
+
+    experiment = mlflow.get_experiment_by_name("CI_XGB_MLFLOW_TEST")
+    assert experiment is not None
+
+    client = mlflow.tracking.MlflowClient()
+    runs = client.search_runs(experiment.experiment_id)
+
+    assert len(runs) > 0
+
+    metrics = runs[0].data.metrics
+
+    expected_metrics = ["recall", "precision", "f1_score", "accuracy", "auc"]
+
+    for metric in expected_metrics:
+        assert metric in metrics
+        assert isinstance(metrics[metric], float)
