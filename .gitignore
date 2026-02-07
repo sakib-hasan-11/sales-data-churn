@@ -5,8 +5,6 @@ env/
 .vscode/
 .DS_Store
 *.pyc
-data/raw/*.csv
-data/processed/*.csv
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -18,7 +16,10 @@ wheels/
 # Virtual environments
 .venv
 
-data/
+# Data files (except test dummy data)
+data/processed/
+data/raw/*
+!data/raw/dummy_data.csv
 
 mlruns/
 temp_model_save/

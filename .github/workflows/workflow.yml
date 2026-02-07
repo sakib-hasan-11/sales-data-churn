@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: code check ci pipeline
 
 on:
   push:
