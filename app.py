@@ -319,12 +319,14 @@ def main():
         [
             "Overview",
             "Pipeline Flow",
+            "Pipeline Scripts",
             "Module Explorer",
             "Function Details",
         ],
         format_func=lambda x: {
             "Overview": "  Overview",
             "Pipeline Flow": "  Pipeline Flow",
+            "Pipeline Scripts": "  Pipeline Scripts",
             "Module Explorer": "  Module Explorer",
             "Function Details": "  Function Details",
         }[x],
@@ -341,6 +343,8 @@ def main():
         show_overview()
     elif page == "Pipeline Flow":
         show_pipeline_flow()
+    elif page == "Pipeline Scripts":
+        show_pipeline_scripts()
     elif page == "Module Explorer":
         show_module_explorer()
     elif page == "Function Details":
@@ -931,6 +935,773 @@ def show_pipeline_flow():
 
     # Display the interactive flowchart
     st.components.v1.html(interactive_flowchart, height=2400, scrolling=True)
+
+
+def show_pipeline_scripts():
+    """Display all pipeline scripts with HTML flowchart explanations"""
+    st.markdown(
+        '<h2 class="section-header"><i class="fa-solid fa-terminal icon"></i>Pipeline Scripts Overview</h2>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("""
+    The project includes **three pipeline execution scripts**, each designed for different use cases. 
+    Click on any pipeline below to see detailed workflow and execution steps.
+    """)
+
+    # Pipeline comparison table
+    st.markdown("### 📊 Quick Comparison")
+
+    comparison_html = """
+    <div style="margin: 20px 0;">
+        <table style="width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <thead>
+                <tr style="background-color: #0f766e; color: white;">
+                    <th style="padding: 15px; text-align: left; border: 1px solid #ddd;">Pipeline Script</th>
+                    <th style="padding: 15px; text-align: left; border: 1px solid #ddd;">Purpose</th>
+                    <th style="padding: 15px; text-align: left; border: 1px solid #ddd;">Execution Style</th>
+                    <th style="padding: 15px; text-align: left; border: 1px solid #ddd;">Best For</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="background-color: #f8fafc;">
+                    <td style="padding: 12px; border: 1px solid #ddd;"><strong>run_pipeline.py</strong></td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">Full production pipeline</td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">Sequential, all stages</td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">Production deployment</td>
+                </tr>
+                <tr style="background-color: white;">
+                    <td style="padding: 12px; border: 1px solid #ddd;"><strong>quick_pipeline.py</strong></td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">Fast prototyping</td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">Sequential, reduced trials</td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">Rapid testing & iteration</td>
+                </tr>
+                <tr style="background-color: #f8fafc;">
+                    <td style="padding: 12px; border: 1px solid #ddd;"><strong>modular_pipeline.py</strong></td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">Stage-by-stage execution</td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">CLI-based, selective stages</td>
+                    <td style="padding: 12px; border: 1px solid #ddd;">Development & debugging</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    """
+    st.markdown(comparison_html, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Interactive pipeline flowcharts
+    pipeline_html = """
+    <style>
+    .pipeline-container {
+        margin: 30px 0;
+    }
+    
+    .pipeline-header {
+        background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
+        color: white;
+        padding: 20px 25px;
+        border-radius: 10px 10px 0 0;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .pipeline-header:hover {
+        background: linear-gradient(135deg, #115e59 0%, #0d9488 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .pipeline-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .pipeline-content {
+        display: none;
+        background: white;
+        border: 2px solid #e5e7eb;
+        border-top: none;
+        border-radius: 0 0 10px 10px;
+        padding: 30px;
+        animation: slideDown 0.3s ease;
+    }
+    
+    .pipeline-content.active {
+        display: block;
+    }
+    
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .flow-stage {
+        background: linear-gradient(to right, #f8fafc, #ffffff);
+        padding: 20px;
+        margin: 15px 0;
+        border-left: 4px solid #0f766e;
+        border-radius: 8px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        transition: all 0.2s ease;
+    }
+    
+    .flow-stage:hover {
+        border-left-width: 6px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transform: translateX(5px);
+    }
+    
+    .stage-number {
+        display: inline-block;
+        background: #0f766e;
+        color: white;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 32px;
+        font-weight: 700;
+        margin-right: 12px;
+    }
+    
+    .stage-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: #1a365d;
+        margin-bottom: 8px;
+    }
+    
+    .stage-desc {
+        color: #475569;
+        margin: 8px 0;
+        line-height: 1.6;
+    }
+    
+    .stage-arrow {
+        text-align: center;
+        color: #0f766e;
+        font-size: 1.8rem;
+        margin: 10px 0;
+    }
+    
+    .code-snippet {
+        background: #1e293b;
+        color: #e2e8f0;
+        padding: 15px;
+        border-radius: 6px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9rem;
+        margin: 15px 0;
+        overflow-x: auto;
+    }
+    
+    .highlight {
+        background: #fef3c7;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-weight: 600;
+    }
+    
+    .info-badge {
+        display: inline-block;
+        background: #dbeafe;
+        color: #1e40af;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin: 5px 5px 5px 0;
+    }
+    
+    .toggle-icon {
+        transition: transform 0.3s ease;
+    }
+    
+    .toggle-icon.rotated {
+        transform: rotate(180deg);
+    }
+    </style>
+    
+    <script>
+    function togglePipeline(id) {
+        const content = document.getElementById(id);
+        const icon = document.getElementById(id + '-icon');
+        
+        // Close all other pipelines
+        document.querySelectorAll('.pipeline-content').forEach(el => {
+            if (el.id !== id) {
+                el.classList.remove('active');
+            }
+        });
+        
+        document.querySelectorAll('.toggle-icon').forEach(el => {
+            if (el.id !== id + '-icon') {
+                el.classList.remove('rotated');
+            }
+        });
+        
+        // Toggle current pipeline
+        content.classList.toggle('active');
+        icon.classList.toggle('rotated');
+    }
+    </script>
+    
+    <!-- Pipeline 1: run_pipeline.py -->
+    <div class="pipeline-container">
+        <div class="pipeline-header" onclick="togglePipeline('pipeline1')">
+            <div class="pipeline-title">
+                <i class="fa-solid fa-rocket"></i>
+                <span>1. run_pipeline.py - Full Production Pipeline</span>
+            </div>
+            <i class="fa-solid fa-chevron-down toggle-icon" id="pipeline1-icon"></i>
+        </div>
+        <div class="pipeline-content" id="pipeline1">
+            <h3 style="color: #0f766e; margin-bottom: 20px;">
+                <i class="fa-solid fa-info-circle"></i> Overview
+            </h3>
+            <p style="font-size: 1.05rem; line-height: 1.7; color: #334155;">
+                The <strong>full production pipeline</strong> executes all 8 stages sequentially with production-ready parameters.
+                It includes comprehensive error handling, state management, and detailed logging for deployment scenarios.
+            </p>
+            
+            <div class="info-badge">677 lines</div>
+            <div class="info-badge">100 Optuna trials</div>
+            <div class="info-badge">5 training runs</div>
+            <div class="info-badge">YAML config support</div>
+            
+            <div class="code-snippet">
+python scripts/run_pipeline.py
+            </div>
+            
+            <h4 style="margin-top: 30px; color: #1a365d;">Pipeline Flow:</h4>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">1</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Initialize Configuration</div>
+                        <div class="stage-desc">
+                            Load configuration from <span class="highlight">pipeline_config.yaml</span> or use defaults.
+                            Set up paths, parameters, and logging.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">2</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Load Data</div>
+                        <div class="stage-desc">
+                            Read train.csv and test.csv from <span class="highlight">data/raw/</span> directory.
+                            Validate file existence and basic structure.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">3</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Validate Data</div>
+                        <div class="stage-desc">
+                            Run Great Expectations validation suite. Check schema, data types, 
+                            ranges, and business logic constraints.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">4</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Preprocess Raw Data</div>
+                        <div class="stage-desc">
+                            Clean column names, handle missing values using median/mode imputation.
+                            Output: cleaned dataframes ready for feature engineering.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">5</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Build Features</div>
+                        <div class="stage-desc">
+                            Create 10 engineered features: CLV, risk scores, engagement metrics, 
+                            support efficiency, and interaction-based features.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">6</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Preprocess Features</div>
+                        <div class="stage-desc">
+                            Encode categorical variables (Label/OneHot), scale numerical features.
+                            Split X and y, prepare final training matrices.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">7</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Optuna Hyperparameter Tuning</div>
+                        <div class="stage-desc">
+                            Run <span class="highlight">100 trials</span> to optimize XGBoost hyperparameters.
+                            Objective: maximize recall score on validation set.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">8</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Train & Track with MLflow</div>
+                        <div class="stage-desc">
+                            Train <span class="highlight">5 runs</span> with best parameters.
+                            Log metrics, parameters, and models to MLflow. Select best model by recall.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">9</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Save Final Model</div>
+                        <div class="stage-desc">
+                            Save best model to <span class="highlight">models/</span> directory.
+                            Include metadata, preprocessing artifacts, and performance metrics.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background: #f0fdf4; border: 2px solid #86efac; border-radius: 8px; padding: 20px; margin-top: 30px;">
+                <h4 style="color: #166534; margin-bottom: 10px;">
+                    <i class="fa-solid fa-check-circle"></i> Use Cases
+                </h4>
+                <ul style="color: #166534; line-height: 2;">
+                    <li>Production model training with full optimization</li>
+                    <li>Scheduled/automated ML pipeline execution</li>
+                    <li>Final model deployment preparation</li>
+                    <li>Comprehensive experiment tracking</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Pipeline 2: quick_pipeline.py -->
+    <div class="pipeline-container">
+        <div class="pipeline-header" onclick="togglePipeline('pipeline2')">
+            <div class="pipeline-title">
+                <i class="fa-solid fa-bolt"></i>
+                <span>2. quick_pipeline.py - Fast Prototyping Pipeline</span>
+            </div>
+            <i class="fa-solid fa-chevron-down toggle-icon" id="pipeline2-icon"></i>
+        </div>
+        <div class="pipeline-content" id="pipeline2">
+            <h3 style="color: #0f766e; margin-bottom: 20px;">
+                <i class="fa-solid fa-info-circle"></i> Overview
+            </h3>
+            <p style="font-size: 1.05rem; line-height: 1.7; color: #334155;">
+                The <strong>quick pipeline</strong> is a streamlined version optimized for rapid iteration and testing.
+                It reduces computation time by using fewer trials and runs while maintaining the full pipeline structure.
+            </p>
+            
+            <div class="info-badge">125 lines</div>
+            <div class="info-badge">50 Optuna trials</div>
+            <div class="info-badge">3 training runs</div>
+            <div class="info-badge">~70% faster</div>
+            
+            <div class="code-snippet">
+python scripts/quick_pipeline.py
+            </div>
+            
+            <h4 style="margin-top: 30px; color: #1a365d;">Simplified Flow:</h4>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">1</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Quick Load & Validate</div>
+                        <div class="stage-desc">
+                            Fast data loading with basic validation checks only.
+                            Skips extensive Great Expectations suite for speed.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">2</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Preprocess & Engineer</div>
+                        <div class="stage-desc">
+                            Combined preprocessing and feature engineering step.
+                            Same transformations as full pipeline, executed sequentially.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">3</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Quick Optuna Tuning</div>
+                        <div class="stage-desc">
+                            Reduced to <span class="highlight">50 trials</span> (vs 100 in full pipeline).
+                            Still finds near-optimal hyperparameters with less time.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">4</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Fast Training</div>
+                        <div class="stage-desc">
+                            Train <span class="highlight">3 runs</span> (vs 5 in full pipeline) with best parameters.
+                            MLflow tracking still enabled for experiment comparison.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stage-arrow">↓</div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">5</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">Save & Report</div>
+                        <div class="stage-desc">
+                            Save best model and generate quick performance summary.
+                            Ready for immediate testing and iteration.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background: #fef3c7; border: 2px solid #fbbf24; border-radius: 8px; padding: 20px; margin-top: 30px;">
+                <h4 style="color: #92400e; margin-bottom: 10px;">
+                    <i class="fa-solid fa-lightbulb"></i> Use Cases
+                </h4>
+                <ul style="color: #92400e; line-height: 2;">
+                    <li>Rapid prototyping and experimentation</li>
+                    <li>Testing pipeline changes quickly</li>
+                    <li>Feature engineering validation</li>
+                    <li>Development environment testing</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Pipeline 3: modular_pipeline.py -->
+    <div class="pipeline-container">
+        <div class="pipeline-header" onclick="togglePipeline('pipeline3')">
+            <div class="pipeline-title">
+                <i class="fa-solid fa-cubes"></i>
+                <span>3. modular_pipeline.py - Stage-by-Stage Execution</span>
+            </div>
+            <i class="fa-solid fa-chevron-down toggle-icon" id="pipeline3-icon"></i>
+        </div>
+        <div class="pipeline-content" id="pipeline3">
+            <h3 style="color: #0f766e; margin-bottom: 20px;">
+                <i class="fa-solid fa-info-circle"></i> Overview
+            </h3>
+            <p style="font-size: 1.05rem; line-height: 1.7; color: #334155;">
+                The <strong>modular pipeline</strong> provides fine-grained control with a CLI interface.
+                Execute individual stages, skip stages, or run from a specific point - perfect for debugging and development.
+            </p>
+            
+            <div class="info-badge">435 lines</div>
+            <div class="info-badge">CLI interface</div>
+            <div class="info-badge">State persistence</div>
+            <div class="info-badge">Selective execution</div>
+            
+            <div class="code-snippet">
+# Run single stage<br/>
+python scripts/modular_pipeline.py --stages load<br/><br/>
+# Run multiple stages<br/>
+python scripts/modular_pipeline.py --stages load validate preprocess<br/><br/>
+# Run all stages<br/>
+python scripts/modular_pipeline.py --all<br/><br/>
+# Skip certain stages<br/>
+python scripts/modular_pipeline.py --all --skip validate<br/><br/>
+# Resume from specific stage<br/>
+python scripts/modular_pipeline.py --from features
+            </div>
+            
+            <h4 style="margin-top: 30px; color: #1a365d;">Available Stages:</h4>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">1</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">load - Load Data</div>
+                        <div class="stage-desc">
+                            Loads train.csv and test.csv. Saves state to <span class="highlight">pipeline_state.pkl</span>.
+                        </div>
+                        <div class="code-snippet" style="margin-top: 10px; font-size: 0.85rem;">
+--stages load
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">2</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">validate - Validate Data Quality</div>
+                        <div class="stage-desc">
+                            Runs Great Expectations validation. Can be skipped during development.
+                        </div>
+                        <div class="code-snippet" style="margin-top: 10px; font-size: 0.85rem;">
+--stages validate --skip validate  # Skip this stage
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">3</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">preprocess - Raw Preprocessing</div>
+                        <div class="stage-desc">
+                            Column cleaning and missing value imputation. State preserved between stages.
+                        </div>
+                        <div class="code-snippet" style="margin-top: 10px; font-size: 0.85rem;">
+--stages preprocess
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">4</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">features - Feature Engineering</div>
+                        <div class="stage-desc">
+                            Build 10 engineered features. Test changes to feature logic quickly.
+                        </div>
+                        <div class="code-snippet" style="margin-top: 10px; font-size: 0.85rem;">
+--from features  # Resume from here
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">5</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">encode - Feature Preprocessing</div>
+                        <div class="stage-desc">
+                            Encode and scale features. Prepare final X and y matrices.
+                        </div>
+                        <div class="code-snippet" style="margin-top: 10px; font-size: 0.85rem;">
+--stages encode
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">6</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">optuna - Hyperparameter Optimization</div>
+                        <div class="stage-desc">
+                            Optuna tuning with configurable trials via <span class="highlight">--n-trials</span>.
+                        </div>
+                        <div class="code-snippet" style="margin-top: 10px; font-size: 0.85rem;">
+--stages optuna --n-trials 20  # Quick tuning
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">7</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">train - Model Training</div>
+                        <div class="stage-desc">
+                            Train with MLflow tracking. Control runs via <span class="highlight">--n-runs</span>.
+                        </div>
+                        <div class="code-snippet" style="margin-top: 10px; font-size: 0.85rem;">
+--stages train --n-runs 2  # Quick training
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flow-stage">
+                <div style="display: flex; align-items: start;">
+                    <span class="stage-number">8</span>
+                    <div style="flex: 1;">
+                        <div class="stage-title">save - Save Model</div>
+                        <div class="stage-desc">
+                            Save final model and artifacts. Last stage in the pipeline.
+                        </div>
+                        <div class="code-snippet" style="margin-top: 10px; font-size: 0.85rem;">
+--stages save
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <h4 style="margin-top: 30px; color: #1a365d;">Advanced CLI Features:</h4>
+            
+            <div style="background: white; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                <h5 style="color: #0f766e; margin-bottom: 15px;">State Management</h5>
+                <p style="color: #475569; margin-bottom: 10px;">
+                    Pipeline state is automatically saved after each stage to <code>pipeline_state.pkl</code>.
+                    Resume execution from any point without re-running completed stages.
+                </p>
+                <div class="code-snippet">
+# Run first 3 stages<br/>
+python scripts/modular_pipeline.py --stages load validate preprocess<br/><br/>
+# Later: continue from features<br/>
+python scripts/modular_pipeline.py --from features
+                </div>
+            </div>
+            
+            <div style="background: white; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                <h5 style="color: #0f766e; margin-bottom: 15px;">Selective Execution</h5>
+                <p style="color: #475569; margin-bottom: 10px;">
+                    Run specific stages for debugging or testing individual components.
+                </p>
+                <div class="code-snippet">
+# Test only feature engineering<br/>
+python scripts/modular_pipeline.py --stages features<br/><br/>
+# Run all except validation<br/>
+python scripts/modular_pipeline.py --all --skip validate
+                </div>
+            </div>
+            
+            <div style="background: white; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                <h5 style="color: #0f766e; margin-bottom: 15px;">Parameter Control</h5>
+                <p style="color: #475569; margin-bottom: 10px;">
+                    Override default parameters for optuna and training stages.
+                </p>
+                <div class="code-snippet">
+# Fast development testing<br/>
+python scripts/modular_pipeline.py --all --n-trials 5 --n-runs 2<br/><br/>
+# Production with more trials<br/>
+python scripts/modular_pipeline.py --all --n-trials 200 --n-runs 10
+                </div>
+            </div>
+            
+            <div style="background: #ede9fe; border: 2px solid #a78bfa; border-radius: 8px; padding: 20px; margin-top: 30px;">
+                <h4 style="color: #5b21b6; margin-bottom: 10px;">
+                    <i class="fa-solid fa-star"></i> Use Cases
+                </h4>
+                <ul style="color: #5b21b6; line-height: 2;">
+                    <li>Debugging specific pipeline stages</li>
+                    <li>Testing feature engineering changes</li>
+                    <li>CI/CD pipeline testing (used in GitHub Actions)</li>
+                    <li>Iterative model development</li>
+                    <li>Resuming failed pipeline runs</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Summary Section -->
+    <div style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-radius: 12px; padding: 30px; margin-top: 40px; border: 2px solid #cbd5e1;">
+        <h3 style="color: #1a365d; margin-bottom: 20px;">
+            <i class="fa-solid fa-graduation-cap"></i> Which Pipeline Should I Use?
+        </h3>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 25px;">
+            <div style="background: white; padding: 20px; border-radius: 8px; border: 2px solid #10b981;">
+                <div style="font-size: 2rem; text-align: center; margin-bottom: 10px;">🚀</div>
+                <h4 style="color: #10b981; text-align: center; margin-bottom: 15px;">Production</h4>
+                <p style="text-align: center; color: #475569;">
+                    Use <strong>run_pipeline.py</strong> for final model training and deployment
+                </p>
+            </div>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; border: 2px solid #f59e0b;">
+                <div style="font-size: 2rem; text-align: center; margin-bottom: 10px;">⚡</div>
+                <h4 style="color: #f59e0b; text-align: center; margin-bottom: 15px;">Development</h4>
+                <p style="text-align: center; color: #475569;">
+                    Use <strong>quick_pipeline.py</strong> for fast iteration and prototyping
+                </p>
+            </div>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; border: 2px solid #8b5cf6;">
+                <div style="font-size: 2rem; text-align: center; margin-bottom: 10px;">🔧</div>
+                <h4 style="color: #8b5cf6; text-align: center; margin-bottom: 15px;">Debugging</h4>
+                <p style="text-align: center; color: #475569;">
+                    Use <strong>modular_pipeline.py</strong> for stage-by-stage execution
+                </p>
+            </div>
+        </div>
+    </div>
+    """
+
+    st.components.v1.html(pipeline_html, height=3000, scrolling=True)
 
 
 def show_module_explorer():

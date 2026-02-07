@@ -34,13 +34,6 @@ import pickle
 import sys
 import warnings
 from pathlib import Path
-
-warnings.filterwarnings("ignore")
-
-# Add project root to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 from src.data_processing.load import load_data
 from src.data_processing.preprocess import raw_preprocess
 from src.features.build_feature import build_feature
@@ -52,6 +45,13 @@ from src.training.mlflow_training import (
 )
 from src.training.optuna_tuning import optimize_xgboost_hyperparameters
 from src.utils.data_validator import validate_data
+
+warnings.filterwarnings("ignore")
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 
 
 class PipelineState:
@@ -258,7 +258,6 @@ def run_train_stage(
 def run_save_stage(state: PipelineState, train_results: dict = None):
         
     # ===== SKIP SAVE IN CI =====
-    import os
     if os.getenv("CI") == "true":
         print("CI mode detected → skipping model save stage")
         return {"status": "skipped_in_ci"}
