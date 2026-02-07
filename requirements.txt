@@ -6,7 +6,8 @@ optuna==3.6.1
 
 
 pydantic>=2.6
-great_expectations>=1.10.0
+great_expectations==1.9.8
+
 
 
 scikit-learn>=1.4,<1.6
