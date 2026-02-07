@@ -19,25 +19,33 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
     # 1. Create ephemeral DataContext (no filesystem side-effects)
     context = gx.get_context(mode="ephemeral")
 
-    # 2. Register in-memory Pandas datasource
-    datasource = context.sources.add_pandas(name="pandas_in_memory")
-
-    # 3. Create a Data Asset and Batch
-    data_asset = datasource.add_dataframe_asset(name="churn_df")
-    batch_request = data_asset.build_batch_request(dataframe=df)
-
-    # 4. Create or load Expectation Suite/rules
+    # 2. Create or load Expectation Suite/rules
     suite_name = "churn_validation_suite"
-
+    
     try:
-        context.get_expectation_suite(suite_name)
-    except gx.exceptions.DataContextError:
-        context.add_expectation_suite(expectation_suite_name=suite_name)
+        suite = context.get_expectation_suite(suite_name)
+    except (gx.exceptions.DataContextError, KeyError):
+        suite = context.add_expectation_suite(expectation_suite_name=suite_name)
 
-    # 5. Create Validator
-    validator = context.get_validator(
-        batch_request=batch_request, expectation_suite_name=suite_name
-    )
+    # 3. Create Validator directly from DataFrame (compatible with GE 0.15+)
+    try:
+        # Try GE 1.0+ API first
+        if hasattr(context, 'sources'):
+            datasource = context.sources.add_pandas(name="pandas_in_memory")
+            data_asset = datasource.add_dataframe_asset(name="churn_df")
+            batch_request = data_asset.build_batch_request(dataframe=df)
+            validator = context.get_validator(
+                batch_request=batch_request, expectation_suite_name=suite_name
+            )
+        else:
+            # Fallback: GE 0.15-0.18 API - create validator directly
+            raise AttributeError("Use fallback method")
+    except (AttributeError, Exception):
+        # Use simpler API that works across versions
+        from great_expectations.core import ExpectationSuite
+        from great_expectations.dataset import PandasDataset
+        
+        validator = PandasDataset(df, expectation_suite=suite)
 
 
 
