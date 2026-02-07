@@ -74,6 +74,7 @@ def train_xgboost_with_mlflow(
     n_runs: int = 5,
     mlflow_tracking_uri: str = "./mlruns",
     model_save_dir="models",
+    best_params: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
 
     # Set MLflow tracking URI
@@ -102,22 +103,28 @@ def train_xgboost_with_mlflow(
     X_test = test_data.drop(columns=[target_col])
     y_test = test_data[target_col]
 
-    # First, run Optuna to get best hyperparameters
-    print("STEP 1: Running Optuna hyperparameter optimization...")
+    # Run Optuna only if best_params not provided
+    if best_params is None:
+        print("STEP 1: Running Optuna hyperparameter optimization...")
 
-    optuna_results = optimize_xgboost_hyperparameters(
-        train_data=train_data,
-        test_data=test_data,
-        target_col=target_col,
-        n_trials=n_optuna_trials,
-        optimize_metric="recall",
-    )
+        optuna_results = optimize_xgboost_hyperparameters(
+            train_data=train_data,
+            test_data=test_data,
+            target_col=target_col,
+            n_trials=n_optuna_trials,
+            optimize_metric="recall",
+        )
 
-    best_params = optuna_results["best_params"]
+        best_params = optuna_results["best_params"]
 
-    print("\nBest parameters found by Optuna:")
-    for param, value in best_params.items():
-        print(f"  {param}: {value}")
+        print("\nBest parameters found by Optuna:")
+        for param, value in best_params.items():
+            print(f"  {param}: {value}")
+    else:
+        print("STEP 1: Using provided best parameters (skipping Optuna optimization)")
+        print("\nBest parameters:")
+        for param, value in best_params.items():
+            print(f"  {param}: {value}")
 
     # Setup experiment
 

@@ -360,6 +360,7 @@ def stage_7_train_with_mlflow(
         n_runs=config.N_MLFLOW_RUNS,
         mlflow_tracking_uri=config.MLFLOW_TRACKING_URI,
         model_save_dir=str(config.MODEL_DIR),
+        best_params=best_params,
     )
 
     print(f"\nTraining Results:")
@@ -437,12 +438,35 @@ def run_pipeline():
         # Stage 5: Preprocess Features
         train_df, test_df = stage_5_preprocess_features(train_df, test_df, config)
 
-        # Stage 6: Optimize Hyperparameters
-        optuna_results = stage_6_optimize_hyperparameters(train_df, test_df, config)
+        # Stage 6: Optimize Hyperparameters (SKIPPED - Using pre-computed best parameters)
+        # optuna_results = stage_6_optimize_hyperparameters(train_df, test_df, config)
+
+        # Using pre-computed best hyperparameters from previous Optuna optimization
+        print("\n" + "=" * 80)
+        print("STAGE 6: USING PRE-COMPUTED HYPERPARAMETERS (Skipping Optuna)")
+        print("=" * 80)
+
+        best_params = {
+            "booster": "gbtree",
+            "lambda": 0.00032762263951052436,
+            "alpha": 0.00017370640229832804,
+            "max_depth": 7,
+            "eta": 0.2960673713462837,
+            "gamma": 0.00017131007397068948,
+            "min_child_weight": 6,
+            "subsample": 0.7605678991335877,
+            "colsample_bytree": 0.9988324896159033,
+            "colsample_bylevel": 0.7777131466076425,
+            "n_estimators": 900,
+        }
+
+        print("\nUsing Best Hyperparameters:")
+        for param, value in best_params.items():
+            print(f"    {param}: {value}")
 
         # Stage 7: Train with MLflow
         training_results = stage_7_train_with_mlflow(
-            train_df, test_df, optuna_results["best_params"], config
+            train_df, test_df, best_params, config
         )
 
         # Stage 8: Save Best Model
@@ -465,7 +489,7 @@ def run_pipeline():
             "status": "success",
             "model_info": model_info,
             "training_results": training_results,
-            "optuna_results": optuna_results,
+            "best_params": best_params,
         }
 
     except Exception as e:
