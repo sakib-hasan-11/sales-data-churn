@@ -57,13 +57,13 @@ def prepare_ci_data():
     train_df.to_csv(train_file, index=False)
     test_df.to_csv(test_file, index=False)
 
-    print(f"\nData split complete:")
+    print("\nData split complete:")
     print(f"  Training samples: {len(train_df)} -> {train_file}")
     print(f"  Test samples: {len(test_df)} -> {test_file}")
-    print(f"\nTrain distribution:")
+    print("\nTrain distribution:")
     if "Churn" in train_df.columns:
         print(train_df["Churn"].value_counts())
-    print(f"\nTest distribution:")
+    print("\nTest distribution:")
     if "Churn" in test_df.columns:
         print(test_df["Churn"].value_counts())
 
