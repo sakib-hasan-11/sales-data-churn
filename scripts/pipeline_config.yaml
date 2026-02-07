@@ -19,7 +19,7 @@ output:
 
 # Data Preprocessing
 preprocessing:
-  strategy: "auto"  # Options: auto, median, mode, constant
+  strategy: "median"  # Median is robust to outliers (recommended for production)
   custom_fill:  # Optional: specify custom fill values per column
     # age: 30
     # tenure: 0
@@ -31,14 +31,14 @@ features:
 
 # Model Training
 training:
-  # Hyperparameter Optimization
-  n_optuna_trials: 100
-  optimize_metric: "recall"  # Options: recall, precision, f1, auc
+  # Hyperparameter Optimization (PRODUCTION SETTINGS)
+  n_optuna_trials: 250  # More trials = better hyperparameter search (150-300 recommended)
+  optimize_metric: "recall"  # Recall optimized for churn detection
   
   # MLflow Settings
-  experiment_name: "Churn_Prediction_Pipeline"
-  n_mlflow_runs: 5
-  threshold_value: 0.5
+  experiment_name: "Production_Churn_Model"  # Descriptive name for production tracking
+  n_mlflow_runs: 1  # Single run with best parameters (optimized pipeline)
+  threshold_value: 0.35  # Lower threshold to catch more churners (adjust based on business cost of false positives vs false negatives)
   
   # Model Parameters (optional - will be optimized by Optuna if not specified)
   # fixed_params:
@@ -48,7 +48,7 @@ training:
 
 # Pipeline Execution
 execution:
-  skip_validation: false  # Set to true to skip data validation
-  skip_optuna: false  # Set to true to use default parameters
-  save_intermediate: true  # Save intermediate data files
-  verbose: true  # Print detailed logs
+  skip_validation: false  # NEVER skip validation in production
+  skip_optuna: false  # NEVER skip optimization in production - need best hyperparameters
+  save_intermediate: true  # Save for auditing and debugging
+  verbose: true  # Detailed logs for production monitoring

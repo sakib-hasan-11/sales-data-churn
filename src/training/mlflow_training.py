@@ -145,6 +145,7 @@ def train_xgboost_with_mlflow(
             "eval_metric": "logloss",
             "random_state": 42,
             "tree_method": "hist",
+            "device": "cuda",
             "verbosity": 0,
             **best_params,
         }

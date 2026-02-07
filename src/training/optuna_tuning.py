@@ -63,6 +63,7 @@ def optimize_xgboost_hyperparameters(
             "n_estimators": trial.suggest_int("n_estimators", 100, 1000, step=50),
             "random_state": 42,
             "tree_method": "hist",
+            "device": "cuda",
             "verbosity": 0,
         }
 
@@ -110,6 +111,7 @@ def optimize_xgboost_hyperparameters(
         "eval_metric": "logloss",
         "random_state": 42,
         "tree_method": "hist",
+        "device": "cuda",
         "verbosity": 0,
         **best_params,
     }
@@ -140,6 +142,3 @@ def optimize_xgboost_hyperparameters(
     }
 
     return results
-
-
-
