@@ -99,9 +99,13 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
 
     for r in results["results"]:
         if not r["success"]:
-            failed_expectations.append(
-                r["expectation_config"]["expectation_type"]
-            )
+            try:
+                failed_expectations.append(
+                    r["expectation_config"].expectation_type
+                )
+            except Exception:
+                failed_expectations.append("unknown_expectation")
+
 
     success = results["success"]
 
