@@ -1,0 +1,54 @@
+# Pipeline Configuration File
+# ============================
+# Modify these settings to customize your pipeline execution
+
+# Data Settings
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  train_file: "train.csv"
+  test_file: "test.csv"
+  holdout_file: "holdout.csv"
+  target_column: "churn"
+
+# Output Settings
+output:
+  model_dir: "models"
+  mlruns_dir: "mlruns"
+  outputs_dir: "outputs"
+
+# Data Preprocessing
+preprocessing:
+  strategy: "auto"  # Options: auto, median, mode, constant
+  custom_fill:  # Optional: specify custom fill values per column
+    # age: 30
+    # tenure: 0
+
+# Feature Engineering
+features:
+  processed_train_name: "train_processed.csv"
+  processed_test_name: "test_processed.csv"
+
+# Model Training
+training:
+  # Hyperparameter Optimization
+  n_optuna_trials: 100
+  optimize_metric: "recall"  # Options: recall, precision, f1, auc
+  
+  # MLflow Settings
+  experiment_name: "Churn_Prediction_Pipeline"
+  n_mlflow_runs: 5
+  threshold_value: 0.5
+  
+  # Model Parameters (optional - will be optimized by Optuna if not specified)
+  # fixed_params:
+  #   max_depth: 6
+  #   learning_rate: 0.1
+  #   n_estimators: 100
+
+# Pipeline Execution
+execution:
+  skip_validation: false  # Set to true to skip data validation
+  skip_optuna: false  # Set to true to use default parameters
+  save_intermediate: true  # Save intermediate data files
+  verbose: true  # Print detailed logs
