@@ -26,7 +26,7 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
         asset = datasource.add_dataframe_asset(asset_name)
 
     # ---- build validator (OUTSIDE try/except) ----
-    batch_request = asset.build_batch_request(dataframe=df)
+    batch_request = asset.build_batch_request(options={"dataframe": df})
 
     validator = context.get_validator(
         batch_request=batch_request,
