@@ -20,6 +20,13 @@ from sklearn.metrics import (
 from .optuna_tuning import optimize_xgboost_hyperparameters
 
 
+# ===== CI SAFE MODE =====
+if os.getenv("CI") == "true":
+    os.makedirs("mlruns", exist_ok=True)
+    mlflow.set_tracking_uri("file:./mlruns")
+    mlflow.set_experiment("Modular_Pipeline_Experiment")
+
+
 def setup_mlflow_tracking(mlflow_tracking_uri: str):
     """
     Production-safe MLflow setup.
