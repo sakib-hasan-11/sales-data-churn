@@ -28,10 +28,17 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
     # ---- build validator (OUTSIDE try/except) ----
     batch_request = asset.build_batch_request(options={"dataframe": df})
 
+    # create suite if not exists (CI safe)
+    try:
+        context.suites.get(suite_name)
+    except Exception:
+        context.suites.add(gx.ExpectationSuite(name=suite_name))
+
     validator = context.get_validator(
         batch_request=batch_request,
         expectation_suite_name=suite_name,
     )
+
 
     # ================= SCHEMA =================
     print("Validating schema...")
