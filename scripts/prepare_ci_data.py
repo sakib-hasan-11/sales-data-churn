@@ -26,21 +26,26 @@ def prepare_ci_data():
     df = pd.read_csv(dummy_file)
     print(f"Loaded {len(df)} samples with {len(df.columns)} columns")
 
-    # Drop rows with missing target variable (Churn)
+    # Check if stratification is possible
+    # Note: sklearn's stratify parameter cannot handle NaN values
+    # For target variable (Churn), NaN means unlabeled data - drop these rows
+    use_stratify = False
     if "Churn" in df.columns:
-        initial_count = len(df)
-        df = df.dropna(subset=["Churn"])
-        dropped = initial_count - len(df)
-        if dropped > 0:
-            print(f"Dropped {dropped} rows with missing Churn values")
-            print(f"Remaining samples: {len(df)}")
+        churn_nulls = df["Churn"].isna().sum()
+        if churn_nulls > 0:
+            print(f"\nWarning: Found {churn_nulls} rows with missing Churn (target variable)")
+            print("Dropping rows with missing target - cannot train without labels")
+            initial_count = len(df)
+            df = df.dropna(subset=["Churn"])
+            print(f"Remaining samples: {len(df)} (dropped {initial_count - len(df)})")
+        use_stratify = True
 
     # Split into train and test (70/30)
     train_df, test_df = train_test_split(
         df,
         test_size=0.3,
         random_state=42,
-        stratify=df["Churn"] if "Churn" in df.columns else None,
+        stratify=df["Churn"] if use_stratify else None,
     )
 
     # Save to data/raw/
