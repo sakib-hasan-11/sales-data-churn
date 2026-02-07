@@ -26,6 +26,15 @@ def prepare_ci_data():
     df = pd.read_csv(dummy_file)
     print(f"Loaded {len(df)} samples with {len(df.columns)} columns")
 
+    # Drop rows with missing target variable (Churn)
+    if "Churn" in df.columns:
+        initial_count = len(df)
+        df = df.dropna(subset=["Churn"])
+        dropped = initial_count - len(df)
+        if dropped > 0:
+            print(f"Dropped {dropped} rows with missing Churn values")
+            print(f"Remaining samples: {len(df)}")
+
     # Split into train and test (70/30)
     train_df, test_df = train_test_split(
         df,
