@@ -33,7 +33,9 @@ def prepare_ci_data():
     if "Churn" in df.columns:
         churn_nulls = df["Churn"].isna().sum()
         if churn_nulls > 0:
-            print(f"\nWarning: Found {churn_nulls} rows with missing Churn (target variable)")
+            print(
+                f"\nWarning: Found {churn_nulls} rows with missing Churn (target variable)"
+            )
             print("Dropping rows with missing target - cannot train without labels")
             initial_count = len(df)
             df = df.dropna(subset=["Churn"])
