@@ -4,40 +4,33 @@ import great_expectations as gx
 
 
 def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
-    """
-    CI-safe Great Expectations validation
-    Stable for GX 1.9.x
-    """
-
     print("🔍 Starting data validation with Great Expectations")
 
-    # ================= SAFE GX CONTEXT =================
+    # ================= GX CONTEXT =================
     context = gx.get_context()
 
-    # ---- get or create datasource safely ----
     datasource_name = "pandas_ci_ds"
     asset_name = "runtime_df_asset"
     suite_name = "churn_suite"
 
+    # ---- datasource ----
     try:
         datasource = context.data_sources.get(datasource_name)
     except Exception:
         datasource = context.data_sources.add_pandas(datasource_name)
 
-    # ---- get or create asset safely ----
+    # ---- asset ----
     try:
         asset = datasource.get_asset(asset_name)
     except Exception:
         asset = datasource.add_dataframe_asset(asset_name)
 
-    # ---- build batch request ----
-    batch_request = asset.build_batch_request()
+    # ---- build validator (OUTSIDE try/except) ----
+    batch_request = asset.build_batch_request(dataframe=df)
 
-    # ---- validator with runtime dataframe ----
     validator = context.get_validator(
         batch_request=batch_request,
         expectation_suite_name=suite_name,
-        runtime_parameters={"batch_data": df},
     )
 
     # ================= SCHEMA =================
