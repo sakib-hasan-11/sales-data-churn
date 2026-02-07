@@ -7,7 +7,7 @@ import pandas as pd
 def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
     """
     Comprehensive data validation for Telco Customer Churn dataset
-    using Great Expectations >= 1.2.
+    using Great Expectations (compatible with all versions).
 
     Returns:
         success (bool): Whether all critical checks passed
@@ -16,39 +16,10 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
 
     print("🔍 Starting data validation with Great Expectations")
 
-    # 1. Create ephemeral DataContext (no filesystem side-effects)
-    context = gx.get_context(mode="ephemeral")
+    # Use PandasDataset directly - compatible with all GE versions
+    from great_expectations.dataset import PandasDataset
 
-    # 2. Create or load Expectation Suite/rules
-    suite_name = "churn_validation_suite"
-    
-    try:
-        suite = context.get_expectation_suite(suite_name)
-    except (gx.exceptions.DataContextError, KeyError):
-        suite = context.add_expectation_suite(expectation_suite_name=suite_name)
-
-    # 3. Create Validator directly from DataFrame (compatible with GE 0.15+)
-    try:
-        # Try GE 1.0+ API first
-        if hasattr(context, 'sources'):
-            datasource = context.sources.add_pandas(name="pandas_in_memory")
-            data_asset = datasource.add_dataframe_asset(name="churn_df")
-            batch_request = data_asset.build_batch_request(dataframe=df)
-            validator = context.get_validator(
-                batch_request=batch_request, expectation_suite_name=suite_name
-            )
-        else:
-            # Fallback: GE 0.15-0.18 API - create validator directly
-            raise AttributeError("Use fallback method")
-    except (AttributeError, Exception):
-        # Use simpler API that works across versions
-        from great_expectations.core import ExpectationSuite
-        from great_expectations.dataset import PandasDataset
-        
-        validator = PandasDataset(df, expectation_suite=suite)
-
-
-
+    validator = PandasDataset(df)
 
     # ================= SCHEMA VALIDATION =================
     print("Validating schema and required columns...")
@@ -58,7 +29,6 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
     validator.expect_column_values_to_not_be_null("CustomerID")
     validator.expect_column_to_exist("Churn")
 
-
     # Demographics and usage
     validator.expect_column_to_exist("Age")
     validator.expect_column_to_exist("Gender")
@@ -67,20 +37,13 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
     validator.expect_column_to_exist("Support Calls")
     validator.expect_column_to_exist("Payment Delay")
 
-
-
     # Product / contract fields
     validator.expect_column_to_exist("Subscription Type")
     validator.expect_column_to_exist("Contract Length")
 
-
-
     # Financial / interaction fields
     validator.expect_column_to_exist("Total Spend")
     validator.expect_column_to_exist("Last Interaction")
-
-
-
 
     # ================= BUSINESS LOGIC =================
     print("Validating business logic constraints...")
@@ -97,9 +60,6 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
     )
     # Churn should be binary (allow numeric or string forms)
     validator.expect_column_values_to_be_in_set("Churn", [0, 1, "0", "1"])
-
-
-
 
     # ================= NUMERIC RANGE =================
     print("Validating numeric ranges...")
@@ -120,8 +80,6 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
         "Last Interaction", min_value=0, max_value=365
     )
 
-
-
     # ================= STATISTICAL CONSTRAINTS =================
     print("Validating statistical properties...")
 
@@ -132,9 +90,6 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
     validator.expect_column_mean_to_be_between(
         "Usage Frequency", min_value=1, max_value=20
     )
-
-
-
 
     # ================= DATA CONSISTENCY =================
     print("Validating data consistency...")
@@ -151,22 +106,35 @@ def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
     print("Running complete validation rules on the data...")
     results = validator.validate()
 
-
-
     # 7. Process results
     failed_expectations: List[str] = []  # store failed expectations rules here.
 
-    for r in results["results"]:
-        if not r["success"]:
-            failed_expectations.append(r["expectation_config"]["expectation_type"])
+    # Handle both dict and ValidationResult object
+    if hasattr(results, "results"):
+        result_list = results.results
+        success = results.success
+    else:
+        result_list = results.get("results", [])
+        success = results.get("success", True)
 
-    total_checks = len(results["results"])
+    for r in result_list:
+        if isinstance(r, dict):
+            if not r.get("success", True):
+                exp_type = r.get("expectation_config", {}).get(
+                    "expectation_type", "unknown"
+                )
+                failed_expectations.append(exp_type)
+        elif hasattr(r, "success") and not r.success:
+            exp_type = getattr(r.expectation_config, "expectation_type", "unknown")
+            failed_expectations.append(exp_type)
+
+    total_checks = len(result_list)
     passed_checks = total_checks - len(failed_expectations)
 
-    if results["success"]:
-        print(f" Data validation PASSED: {passed_checks}/{total_checks}")
+    if success:
+        print(f"✅ Data validation PASSED: {passed_checks}/{total_checks}")
     else:
-        print(f"Data validation FAILED: {passed_checks}/{total_checks}")
+        print(f"⚠️ Data validation FAILED: {passed_checks}/{total_checks}")
         print(f"   Failed expectations: {failed_expectations}")
 
-    return results["success"], failed_expectations
+    return success, failed_expectations
