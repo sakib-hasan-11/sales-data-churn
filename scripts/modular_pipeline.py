@@ -29,6 +29,7 @@ Available Stages:
 """
 
 import argparse
+import os
 import pickle
 import sys
 import warnings
@@ -252,7 +253,16 @@ def run_train_stage(
     return results
 
 
+
+
 def run_save_stage(state: PipelineState, train_results: dict = None):
+        
+    # ===== SKIP SAVE IN CI =====
+    import os
+    if os.getenv("CI") == "true":
+        print("CI mode detected → skipping model save stage")
+        return {"status": "skipped_in_ci"}
+
     """Stage: Save best model"""
     print("\n" + "=" * 70)
     print("STAGE: SAVE MODEL")
