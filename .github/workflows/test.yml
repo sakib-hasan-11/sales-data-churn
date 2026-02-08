@@ -1,0 +1,23 @@
+name: Test Workflow
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Simple test
+        run: |
+          echo "✓ GitHub Actions is working!"
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit: ${{ github.sha }}"
+      
+      - name: List files
+        run: |
+          ls -la
+          echo "✓ Workflow file found!"
