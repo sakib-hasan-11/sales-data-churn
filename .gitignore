@@ -28,3 +28,5 @@ echo "models/" >> .gitignore
 echo "mlruns/" >> .gitignore
 echo "data/" >> .gitignore
 echo "outputs/" >> .gitignore
+
+models/
