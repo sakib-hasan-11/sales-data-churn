@@ -76,10 +76,13 @@ Thumbs.db
 *.log
 logs/
 
-# Tests
-tests/
-test_*.py
-*_test.py
+# Tests (exclude test files but keep test_model.pkl for Docker testing)
+tests/*.py
+tests/__pycache__/
+tests/.pytest_cache/
+# Allow tests/test_model.pkl to be copied
+!tests/test_model.pkl
+!tests/create_test_model.py
 
 # Scripts (optional, uncomment if not needed in container)
 # scripts/

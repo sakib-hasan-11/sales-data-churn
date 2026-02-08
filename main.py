@@ -15,18 +15,15 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
 # Add src to path
 sys.path.insert(0, "src")
 from inference.inference import (
     ChurnPredictor,
+    create_predictor_from_file,
     create_predictor_from_mlflow,
     create_predictor_from_s3,
 )
-
-
-
-
-
 
 # ============================================================================
 # CONFIGURATIONn : get important configuration from environment variables for flexibility in different environments (local, staging, production)
@@ -44,8 +41,11 @@ class Config:
     HOST = os.getenv("API_HOST", "0.0.0.0")
     PORT = int(os.getenv("API_PORT", "8000"))
 
-    # Model source: 'mlflow' or 's3'
+    # Model source: 'mlflow', 's3', or 'file'
     MODEL_SOURCE = os.getenv("MODEL_SOURCE", "mlflow")
+
+    # File settings (used when MODEL_SOURCE=file)
+    MODEL_PATH = os.getenv("MODEL_PATH", None)
 
     # MLflow settings (used when MODEL_SOURCE=mlflow)
     MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "./mlruns")
@@ -72,13 +72,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-
-
-
-
-
-
 
 
 # ============================================================================
@@ -138,31 +131,36 @@ class CustomerData(BaseModel):
 
 
 """Batch prediction request."""
+
+
 class BatchPredictionRequest(BaseModel):
-   
     customers: list[CustomerData] = Field(..., max_length=1000)
 
 
-
 """Prediction response schema."""
+
+
 class PredictionResponse(BaseModel):
-    
     customerid: str | None
     churn_probability: float
     churn_prediction: int
     risk_level: str
 
+
 """Batch prediction response."""
+
+
 class BatchPredictionResponse(BaseModel):
-    
     predictions: list[PredictionResponse]
     total_customers: int
     high_risk_count: int
     churn_rate: float
 
-"""Health check response."""
-class HealthResponse(BaseModel):
 
+"""Health check response."""
+
+
+class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
     model_info: Dict[str, Any] | None = None
@@ -172,8 +170,7 @@ class HealthResponse(BaseModel):
 # GLOBAL PREDICTOR : this class will hold the loaded model and be used across all API requests, ensuring we only load the model once at startup for efficiency
 # ============================================================================
 
-predictor: ChurnPredictor | None = None 
-
+predictor: ChurnPredictor | None = None
 
 
 # single tone model serving patern - we load the model once at startup and reuse it for all requests, this is more efficient than loading the model on every request, especially for large models that take time to load
@@ -183,21 +180,24 @@ predictor: ChurnPredictor | None = None
 # Shutdown: Cleanup when server stops
 # ============================================================================
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
-    global predictor # this is the global predictor instance that will be used across all requests, we load the model here once at startup for efficiency
+    global predictor  # this is the global predictor instance that will be used across all requests, we load the model here once at startup for efficiency
 
     # Startup
     logger.info("Starting Churn Prediction API...")
     logger.info(f"Model source: {Config.MODEL_SOURCE}")
-    
+
     try:
         if Config.MODEL_SOURCE.lower() == "s3":
             # Load model from S3
             if not Config.S3_MODEL_NAME:
-                raise ValueError("S3_MODEL_NAME environment variable is required when using S3")
-            
+                raise ValueError(
+                    "S3_MODEL_NAME environment variable is required when using S3"
+                )
+
             logger.info(f"Loading model from S3: {Config.S3_MODEL_NAME}")
             predictor = create_predictor_from_s3(
                 model_name=Config.S3_MODEL_NAME,
@@ -207,10 +207,23 @@ async def lifespan(app: FastAPI):
                 threshold=Config.PREDICTION_THRESHOLD,
             )
             logger.info("Model loaded successfully from S3")
+        elif Config.MODEL_SOURCE.lower() == "file":
+            # Load model from file path
+            if not Config.MODEL_PATH:
+                raise ValueError(
+                    "MODEL_PATH environment variable is required when using file"
+                )
+
+            logger.info(f"Loading model from file: {Config.MODEL_PATH}")
+            predictor = create_predictor_from_file(
+                model_path=Config.MODEL_PATH,
+                threshold=Config.PREDICTION_THRESHOLD,
+            )
+            logger.info("Model loaded successfully from file")
         else:
             # Load model from MLflow (default)
             logger.info("Loading model from MLflow")
-            predictor = create_predictor_from_mlflow( # this function will load the model from MLflow using the provided run_id and experiment_name, and return a ChurnPredictor instance that we can use for predictions
+            predictor = create_predictor_from_mlflow(  # this function will load the model from MLflow using the provided run_id and experiment_name, and return a ChurnPredictor instance that we can use for predictions
                 run_id=Config.MLFLOW_RUN_ID,
                 experiment_name=Config.MLFLOW_EXPERIMENT_NAME,
                 tracking_uri=Config.MLFLOW_TRACKING_URI,
@@ -225,12 +238,6 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down API...")
-
-
-
-
-
-
 
 
 # ============================================================================
@@ -258,6 +265,7 @@ app.add_middleware(
 # EXCEPTION HANDLERS
 # ============================================================================
 
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Handle unexpected exceptions."""
@@ -269,8 +277,6 @@ async def global_exception_handler(request: Request, exc: Exception):
             "message": str(exc) if Config.DEBUG else "An unexpected error occurred",
         },
     )
-
-
 
 
 # ============================================================================
