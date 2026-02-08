@@ -96,7 +96,13 @@ def test_no_null_in_features_except_categories(feature_data):
 def preprocessed_feature_data(feature_data, tmp_path_factory):
     output_dir = tmp_path_factory.mktemp("preprocessed")
 
-    df = preprocess_features(feature_data, output_dir, "preprocessed_features.csv")
+    X, y, feature_names = preprocess_features(
+        feature_data, output_dir, "preprocessed_features.csv"
+    )
+
+    # Reconstruct DataFrame for test validation
+    df = pd.DataFrame(X, columns=feature_names)
+    df["churn"] = y
 
     return {
         "df": df,
@@ -220,10 +226,11 @@ def test_data(train_test_split_data):
 # 6️ OPTUNA HYPERPARAMETER TUNING
 # =====================================================
 
-import pytest
 import os
 import pickle
+
 import mlflow
+import pytest
 
 from src.training.mlflow_training import train_xgboost_with_mlflow
 from src.training.optuna_tuning import optimize_xgboost_hyperparameters
@@ -324,10 +331,10 @@ def test_train_with_mlflow_using_optuna_output(
         target_col=target_col,
         threshold_value=0.5,
         experiment_name="CI_XGB_MLFLOW_TEST",
-        n_optuna_trials=1,   # small for CI/local
+        n_optuna_trials=1,  # small for CI/local
         n_runs=1,
         mlflow_tracking_uri=f"file:{mlruns_path}",
-        model_save_dir=model_dir,   # VERY IMPORTANT CHANGE
+        model_save_dir=model_dir,  # VERY IMPORTANT CHANGE
     )
 
     # ---------------------------
@@ -345,7 +352,6 @@ def test_train_with_mlflow_using_optuna_output(
     model_path = os.path.join(model_dir, model_filename)
 
     assert os.path.exists(model_path), "Model not saved"
-
 
     with open(model_path, "rb") as f:
         model = pickle.load(f)

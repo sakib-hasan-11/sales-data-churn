@@ -58,10 +58,10 @@ class TestInferencePreprocessor:
         df = pd.DataFrame([sample_customer])
         df = preprocessor.clean_column_names(df)
 
-        # Mock the necessary preprocessing
-        df["Tenure Category"] = "12-24 Months"
-        df["Age Group"] = "30-40"
-        df["Spend Category"] = "High"
+        # Mock the necessary preprocessing - columns should be lowercase after clean_column_names
+        df["tenure_category"] = "12-24M"
+        df["age_group"] = "30-40"
+        df["spend_category"] = "High"
 
         encoded = preprocessor.encode_features(df)
 

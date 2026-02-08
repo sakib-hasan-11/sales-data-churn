@@ -183,8 +183,11 @@ class TestDataValidator:
     def test_validate_valid_data(self, valid_data):
         """Test validation of valid data"""
         result = validate_data(valid_data)
-        assert result is True or isinstance(result, dict), (
-            "Valid data should pass validation"
+        # validate_data returns (success: bool, failed_expectations: List[str])
+        assert isinstance(result, tuple) and len(result) == 2
+        success, failed = result
+        assert success is True, (
+            f"Valid data should pass validation, but got failures: {failed}"
         )
 
     def test_validate_missing_columns(self):
@@ -197,10 +200,16 @@ class TestDataValidator:
             }
         )
 
-        result = validate_data(invalid_data)
-        # Should either raise exception or return False/dict with errors
-        if isinstance(result, dict):
-            assert "errors" in result or "success" in result
+        # validate_data returns (success: bool, failed_expectations: List[str])
+        # Missing columns will cause an exception or validation failure
+        try:
+            result = validate_data(invalid_data)
+            success, failed = result
+            # Should fail validation
+            assert success is False or len(failed) > 0, "Should detect missing columns"
+        except Exception:
+            # Exception is also acceptable for missing columns
+            pass
 
     def test_validate_data_types(self, valid_data):
         """Test validation catches wrong data types"""
@@ -210,8 +219,9 @@ class TestDataValidator:
 
         try:
             result = validate_data(invalid_data)
-            if isinstance(result, dict):
-                assert not result.get("success", True)
+            success, failed = result
+            # Should fail validation or raise exception
+            assert success is False or len(failed) > 0
         except Exception:
             pass  # Exception is also acceptable
 
@@ -221,10 +231,9 @@ class TestDataValidator:
 
         try:
             result = validate_data(empty_df)
-            if isinstance(result, bool):
-                assert result is False
-            elif isinstance(result, dict):
-                assert not result.get("success", True)
+            success, failed = result
+            # Empty dataframe should fail validation
+            assert success is False or len(failed) > 0
         except Exception:
             pass  # Exception is acceptable
 

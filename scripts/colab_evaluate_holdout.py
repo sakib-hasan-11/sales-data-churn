@@ -258,11 +258,14 @@ def stage_5_preprocess_features_holdout(
 
     print("\nApplying feature preprocessing...")
 
-    holdout_df = preprocess_features(
+    X_holdout, y_holdout, feature_names = preprocess_features(
         df=holdout_df,
         output_path=str(config.PROCESSED_DATA_DIR),
         name=config.PROCESSED_HOLDOUT_NAME,
     )
+    # Reconstruct DataFrame for downstream use
+    holdout_df = pd.DataFrame(X_holdout, columns=feature_names)
+    holdout_df["churn"] = y_holdout
 
     print(f"\nFeature preprocessing complete:")
     print(f"  Holdout set: {holdout_df.shape}")

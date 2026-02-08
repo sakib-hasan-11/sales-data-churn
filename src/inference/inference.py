@@ -41,7 +41,8 @@ class InferencePreprocessor:
     def __init__(self):
         """Initialize preprocessor."""
         self.feature_names = None
-# clean and standardize column names to match training format
+
+    # clean and standardize column names to match training format
     def clean_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Clean and standardize column names to match training format."""
@@ -56,39 +57,46 @@ class InferencePreprocessor:
 
         new_cols = {c: _clean(c) for c in df.columns}
         return df.rename(columns=new_cols)
-    
 
-
-
-# encode categorical features using same logic as training
+    # encode categorical features using same logic as training
     def encode_features(self, df: pd.DataFrame) -> pd.DataFrame:
 
         df = df.copy()
 
         # Label encode gender
-        gender_mapping = {"male": 0, "female": 1}
-        df["gender"] = (
-            df["gender"].str.lower().map(gender_mapping).fillna(0).astype(int)
-        )
+        if "gender" in df.columns:
+            gender_mapping = {"male": 0, "female": 1}
+            df["gender"] = (
+                df["gender"].str.lower().map(gender_mapping).fillna(0).astype(int)
+            )
 
         # One-hot encoding for categorical features
-        subscription_dummies = pd.get_dummies(df["subscription_type"], prefix="sub")
-        contract_dummies = pd.get_dummies(df["contract_length"], prefix="contract")
-        tenure_dummies = pd.get_dummies(df["tenure_category"], prefix="tenuregroup")
-        age_dummies = pd.get_dummies(df["age_group"], prefix="agegroup")
-        spend_dummies = pd.get_dummies(df["spend_category"], prefix="spendcategory")
+        # Only encode if column exists
+        dummies_list = []
 
-        df = pd.concat(
-            [
-                df,
-                subscription_dummies,
-                contract_dummies,
-                tenure_dummies,
-                age_dummies,
-                spend_dummies,
-            ],
-            axis=1,
-        )
+        if "subscription_type" in df.columns:
+            subscription_dummies = pd.get_dummies(df["subscription_type"], prefix="sub")
+            dummies_list.append(subscription_dummies)
+
+        if "contract_length" in df.columns:
+            contract_dummies = pd.get_dummies(df["contract_length"], prefix="contract")
+            dummies_list.append(contract_dummies)
+
+        if "tenure_category" in df.columns:
+            tenure_dummies = pd.get_dummies(df["tenure_category"], prefix="tenuregroup")
+            dummies_list.append(tenure_dummies)
+
+        if "age_group" in df.columns:
+            age_dummies = pd.get_dummies(df["age_group"], prefix="agegroup")
+            dummies_list.append(age_dummies)
+
+        if "spend_category" in df.columns:
+            spend_dummies = pd.get_dummies(df["spend_category"], prefix="spendcategory")
+            dummies_list.append(spend_dummies)
+
+        # Concatenate all dummies
+        if dummies_list:
+            df = pd.concat([df] + dummies_list, axis=1)
 
         # Drop original categorical columns and ID
         columns_to_drop = [
@@ -108,12 +116,7 @@ class InferencePreprocessor:
 
         return df
 
-
-
-
-
-
-# Ensures your input has EXACT same columns as training data (adds missing with zeros)
+    # Ensures your input has EXACT same columns as training data (adds missing with zeros)
     def align_features(
         self, df: pd.DataFrame, expected_features: List[str]
     ) -> pd.DataFrame:
@@ -130,11 +133,7 @@ class InferencePreprocessor:
 
         return df
 
-
-
-
-
-# Main pipeline that runs all steps in order like clean , process, feature engineering, encoding and alignment
+    # Main pipeline that runs all steps in order like clean , process, feature engineering, encoding and alignment
     def preprocess(
         self, data: Any, expected_features: Optional[List[str]] = None
     ) -> pd.DataFrame:
@@ -168,14 +167,6 @@ class InferencePreprocessor:
         return df
 
 
-
-
-
-
-
-
-
-
 # ============================================================================
 # MODEL LOADER class : Heandles loading ML models from various sourcs.
 # ============================================================================
@@ -184,14 +175,12 @@ class InferencePreprocessor:
 class ModelLoader:
     """Heandles loading ML models from various sourcs."""
 
-
-
-#  Load specific model by run ID
+    #  Load specific model by run ID
     @staticmethod
     def load_from_mlflow_run(
         run_id: str, tracking_uri: str = "./mlruns"
     ) -> Tuple[Any, List[str]]:
-       
+
         mlflow.set_tracking_uri(tracking_uri)
 
         try:
@@ -209,10 +198,7 @@ class ModelLoader:
             logger.error(f"Failed to load model from MLflow run {run_id}: {e}")
             raise
 
-
-
-
-# Automatically finds best model by recall metric
+    # Automatically finds best model by recall metric
     @staticmethod
     def load_best_from_experiment(
         experiment_name: str, tracking_uri: str = "./mlruns", metric: str = "recall"
@@ -248,11 +234,7 @@ class ModelLoader:
 
         return model, feature_names, run_id
 
-
-
-
-
-# Load from .pkl or .joblib file 
+    # Load from .pkl or .joblib file
     @staticmethod
     def load_from_file(model_path: str) -> Tuple[Any, List[str]]:
 
@@ -263,20 +245,35 @@ class ModelLoader:
 
         try:
             logger.info(f"Loading model from file: {model_path}")
-            model = joblib.load(model_path)
+            loaded_data = joblib.load(model_path)
 
-            # Extract feature names
-            feature_names = ModelLoader._extract_feature_names(model)
+            # Handle different model formats
+            if isinstance(loaded_data, dict):
+                # Dict format: {"model": model, "feature_names": [...]}
+                model = loaded_data.get("model")
+                feature_names = loaded_data.get("feature_names", [])
 
-            logger.info("Model loaded successfully from file")
+                if model is None:
+                    raise ValueError("Loaded dict does not contain 'model' key")
+
+                # If feature_names not in dict, try to extract from model
+                if not feature_names:
+                    feature_names = ModelLoader._extract_feature_names(model)
+            else:
+                # Direct model object
+                model = loaded_data
+                feature_names = ModelLoader._extract_feature_names(model)
+
+            logger.info(
+                f"Model loaded successfully from file. Features: {len(feature_names)}"
+            )
             return model, feature_names
 
         except Exception as e:
             logger.error(f"Failed to load model from file: {e}")
             raise
 
-
-# Load model from S3 bucket
+    # Load model from S3 bucket
     @staticmethod
     def load_from_s3(
         model_name: str,
@@ -298,7 +295,7 @@ class ModelLoader:
         """
         try:
             logger.info(f"Loading model from S3: {model_name}")
-            
+
             # Initialize S3 handler
             s3_handler = S3ModelHandler(
                 bucket_name=bucket_name,
@@ -312,18 +309,16 @@ class ModelLoader:
             # Extract feature names
             feature_names = ModelLoader._extract_feature_names(model)
 
-            logger.info(f"Model loaded successfully from S3. Features: {len(feature_names)}")
+            logger.info(
+                f"Model loaded successfully from S3. Features: {len(feature_names)}"
+            )
             return model, feature_names, metadata
 
         except Exception as e:
             logger.error(f"Failed to load model from S3: {e}")
             raise
 
-
-
-
-
-# Extract feature names from a model.
+    # Extract feature names from a model.
     @staticmethod
     def _extract_feature_names(model: Any) -> List[str]:
 
@@ -345,18 +340,12 @@ class ModelLoader:
         return feature_names
 
 
-
-
-
-
-
 # ============================================================================
 # INFERENCE ENGINE :  Main class that brings everything together
 # ============================================================================
 
 
 class ChurnPredictor:
-
     def __init__(
         self,
         model: Optional[Any] = None,
@@ -370,9 +359,7 @@ class ChurnPredictor:
         self.preprocessor = InferencePreprocessor()
         self.model_info = {}
 
-
-
-# bring model from  MLflow using run ID
+    # bring model from  MLflow using run ID
     def load_model_from_mlflow_run(
         self, run_id: str, tracking_uri: str = "./mlruns"
     ) -> None:
@@ -386,8 +373,7 @@ class ChurnPredictor:
             "tracking_uri": tracking_uri,
         }
 
-
-# bring best model from experiment using experiment name and metric to optimize
+    # bring best model from experiment using experiment name and metric to optimize
     def load_best_model_from_experiment(
         self,
         experiment_name: str,
@@ -412,8 +398,7 @@ class ChurnPredictor:
             "optimized_metric": metric,
         }
 
-
-# Load model from file (e.g. .pkl or .joblib)
+    # Load model from file (e.g. .pkl or .joblib)
     def load_model_from_file(self, model_path: str) -> None:
         """
         Load model from file.
@@ -424,8 +409,7 @@ class ChurnPredictor:
         self.model, self.feature_names = ModelLoader.load_from_file(model_path)
         self.model_info = {"source": "file", "path": model_path}
 
-
-# Load model from S3 bucket
+    # Load model from S3 bucket
     def load_model_from_s3(
         self,
         model_name: str,
@@ -452,9 +436,7 @@ class ChurnPredictor:
             "metadata": metadata,
         }
 
-
-
-# Predict churn for a single customer
+    # Predict churn for a single customer
     def predict(self, customer_data: Dict[str, Any]) -> Dict[str, Any]:
 
         if self.model is None:
@@ -480,10 +462,7 @@ class ChurnPredictor:
             "risk_level": risk_level,
         }
 
-
-
-
-# Predict churn for a batch of customers
+    # Predict churn for a batch of customers
     def predict_batch(self, customers: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         if self.model is None:
@@ -528,8 +507,7 @@ class ChurnPredictor:
             "churn_rate": round(sum(predictions) / len(predictions), 4),
         }
 
-
-# Calculate risk level based on churn probability
+    # Calculate risk level based on churn probability
     def _calculate_risk_level(self, probability: float) -> str:
 
         if probability >= 0.8:
@@ -541,8 +519,7 @@ class ChurnPredictor:
         else:
             return "Low"
 
-
-# model meta data information for health checks and monitoring
+    # model meta data information for health checks and monitoring
     def get_model_info(self) -> Dict[str, Any]:
 
         return {
@@ -552,12 +529,6 @@ class ChurnPredictor:
             "model_type": type(self.model).__name__ if self.model else None,
             "model_loaded": self.model is not None,
         }
-
-
-
-
-
-
 
 
 # ============================================================================
@@ -638,13 +609,6 @@ def create_predictor_from_s3(
     predictor = ChurnPredictor(threshold=threshold)
     predictor.load_model_from_s3(model_name, bucket_name, region, model_prefix)
     return predictor
-
-
-
-
-
-
-
 
 
 # ============================================================================

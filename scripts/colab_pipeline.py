@@ -271,18 +271,24 @@ def stage_5_preprocess_features(
     print("\nApplying feature preprocessing...")
 
     print("\nProcessing training data...")
-    train_df = preprocess_features(
+    X_train, y_train, feature_names_train = preprocess_features(
         df=train_df,
         output_path=str(config.PROCESSED_DATA_DIR),
         name=config.PROCESSED_TRAIN_NAME,
     )
+    # Reconstruct DataFrame for downstream use
+    train_df = pd.DataFrame(X_train, columns=feature_names_train)
+    train_df["churn"] = y_train
 
     print("\nProcessing test data...")
-    test_df = preprocess_features(
+    X_test, y_test, feature_names_test = preprocess_features(
         df=test_df,
         output_path=str(config.PROCESSED_DATA_DIR),
         name=config.PROCESSED_TEST_NAME,
     )
+    # Reconstruct DataFrame for downstream use
+    test_df = pd.DataFrame(X_test, columns=feature_names_test)
+    test_df["churn"] = y_test
 
     print(f"\nFeature preprocessing complete:")
     print(f"  Training set: {train_df.shape}")
