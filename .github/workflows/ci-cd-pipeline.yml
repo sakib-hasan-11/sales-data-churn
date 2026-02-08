@@ -1,0 +1,601 @@
+name: CI/CD Pipeline - Test and Deploy to ECR
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: churn-prediction-api
+
+jobs:
+  # ============================================================================
+  # JOB 1: Code Quality and Linting
+  # ============================================================================
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort
+      
+      - name: Run Black formatter check
+        run: black --check --diff .
+        continue-on-error: true
+      
+      - name: Run isort import check
+        run: isort --check-only --diff .
+        continue-on-error: true
+      
+      - name: Run Flake8 linter
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 2: Unit Tests - Data Processing
+  # ============================================================================
+  test-data-processing:
+    name: Test Data Processing
+    runs-on: ubuntu-latest
+    needs: code-quality
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+      
+      - name: Run data processing tests
+        run: |
+          pytest tests/test_data_processing.py -v --cov=src/data_processing --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: data-processing
+          name: data-processing-coverage
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 3: Unit Tests - Feature Engineering
+  # ============================================================================
+  test-feature-engineering:
+    name: Test Feature Engineering
+    runs-on: ubuntu-latest
+    needs: code-quality
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+      
+      - name: Run feature engineering tests
+        run: |
+          pytest tests/test_feature_engineering.py -v --cov=src/features --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: feature-engineering
+          name: feature-engineering-coverage
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 4: Unit Tests - Inference Engine
+  # ============================================================================
+  test-inference:
+    name: Test Inference Engine
+    runs-on: ubuntu-latest
+    needs: code-quality
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+      
+      - name: Create test model artifacts
+        run: |
+          python tests/create_test_model.py
+      
+      - name: Run inference engine tests
+        run: |
+          pytest tests/test_inference.py -v --cov=src/inference --cov-report=xml --cov-report=term
+      
+      - name: Test inference preprocessing pipeline
+        run: |
+          pytest tests/test_inference.py::test_inference_preprocessor -v
+      
+      - name: Test model loading from file
+        run: |
+          pytest tests/test_inference.py::test_model_loader_from_file -v
+      
+      - name: Test single prediction
+        run: |
+          pytest tests/test_inference.py::test_single_prediction -v
+      
+      - name: Test batch prediction
+        run: |
+          pytest tests/test_inference.py::test_batch_prediction -v
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: inference
+          name: inference-coverage
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 5: Integration Tests - API Endpoints
+  # ============================================================================
+  test-api:
+    name: Test API Endpoints
+    runs-on: ubuntu-latest
+    needs: [test-data-processing, test-feature-engineering, test-inference]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov httpx
+      
+      - name: Create test model artifacts
+        run: |
+          python tests/create_test_model.py
+      
+      - name: Set environment variables
+        run: |
+          echo "MLFLOW_TRACKING_URI=./mlruns" >> $GITHUB_ENV
+          echo "MODEL_PATH=tests/test_model.pkl" >> $GITHUB_ENV
+      
+      - name: Run API tests
+        run: |
+          pytest test_api.py -v --cov=main --cov-report=xml --cov-report=term
+      
+      - name: Test root endpoint
+        run: |
+          pytest test_api.py::test_read_root -v
+      
+      - name: Test health endpoint
+        run: |
+          pytest test_api.py::test_health_check -v
+      
+      - name: Test ready endpoint
+        run: |
+          pytest test_api.py::test_readiness_check -v
+      
+      - name: Test single prediction endpoint
+        run: |
+          pytest test_api.py::test_predict_single -v
+      
+      - name: Test batch prediction endpoint
+        run: |
+          pytest test_api.py::test_predict_batch -v
+      
+      - name: Test model info endpoint
+        run: |
+          pytest test_api.py::test_model_info -v
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: api
+          name: api-coverage
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 6: Edge Cases and Error Handling Tests
+  # ============================================================================
+  test-edge-cases:
+    name: Test Edge Cases
+    runs-on: ubuntu-latest
+    needs: [test-data-processing, test-feature-engineering, test-inference]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+      
+      - name: Create test model artifacts
+        run: |
+          python tests/create_test_model.py
+      
+      - name: Test missing values handling
+        run: |
+          pytest tests/test_edge_cases.py::test_missing_values -v
+      
+      - name: Test invalid data types
+        run: |
+          pytest tests/test_edge_cases.py::test_invalid_data_types -v
+      
+      - name: Test out of range values
+        run: |
+          pytest tests/test_edge_cases.py::test_out_of_range_values -v
+      
+      - name: Test empty input
+        run: |
+          pytest tests/test_edge_cases.py::test_empty_input -v
+      
+      - name: Test malformed input
+        run: |
+          pytest tests/test_edge_cases.py::test_malformed_input -v
+      
+      - name: Test special characters in strings
+        run: |
+          pytest tests/test_edge_cases.py::test_special_characters -v
+      
+      - name: Test boundary values
+        run: |
+          pytest tests/test_edge_cases.py::test_boundary_values -v
+      
+      - name: Test large batch processing
+        run: |
+          pytest tests/test_edge_cases.py::test_large_batch -v
+      
+      - name: Test duplicate customer IDs
+        run: |
+          pytest tests/test_edge_cases.py::test_duplicate_ids -v
+      
+      - name: Run all edge case tests
+        run: |
+          pytest tests/test_edge_cases.py -v --cov=src --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: edge-cases
+          name: edge-cases-coverage
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 7: Performance and Load Tests
+  # ============================================================================
+  test-performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: test-api
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-benchmark locust
+      
+      - name: Create test model artifacts
+        run: |
+          python tests/create_test_model.py
+      
+      - name: Run performance benchmarks
+        run: |
+          pytest tests/test_performance.py -v --benchmark-only
+      
+      - name: Test API response time
+        run: |
+          pytest tests/test_performance.py::test_prediction_latency -v
+      
+      - name: Test batch processing throughput
+        run: |
+          pytest tests/test_performance.py::test_batch_throughput -v
+
+  # ============================================================================
+  # JOB 8: Security Scanning
+  # ============================================================================
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: code-quality
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety bandit
+      
+      - name: Run Safety check (dependency vulnerabilities)
+        run: |
+          safety check --json || true
+        continue-on-error: true
+      
+      - name: Run Bandit security linter
+        run: |
+          bandit -r src/ main.py -f json -o bandit-report.json || true
+        continue-on-error: true
+      
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v3
+        with:
+          name: bandit-security-report
+          path: bandit-report.json
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 9: Build and Test Docker Image
+  # ============================================================================
+  build-and-test-docker:
+    name: Build and Test Docker Image
+    runs-on: ubuntu-latest
+    needs: [test-api, test-edge-cases, test-performance, security-scan]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: churn-api:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Test Docker image builds successfully
+        run: |
+          docker images | grep churn-api
+      
+      - name: Run Docker container
+        run: |
+          docker run -d -p 8000:8000 --name test-api \
+            -e MODEL_PATH=/app/tests/test_model.pkl \
+            churn-api:test
+          sleep 10
+      
+      - name: Test Docker container health
+        run: |
+          curl --fail http://localhost:8000/health || exit 1
+      
+      - name: Test Docker container readiness
+        run: |
+          curl --fail http://localhost:8000/ready || exit 1
+      
+      - name: Test Docker container prediction endpoint
+        run: |
+          curl -X POST http://localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{
+              "customerid": "TEST001",
+              "age": 35,
+              "gender": "Male",
+              "tenure": 24,
+              "usage_frequency": 15,
+              "support_calls": 3,
+              "payment_delay": 5,
+              "subscription_type": "Premium",
+              "contract_length": "Annual",
+              "total_spend": 1250.50,
+              "last_interaction": 10
+            }' || exit 1
+      
+      - name: Check Docker container logs
+        if: always()
+        run: |
+          docker logs test-api
+      
+      - name: Stop Docker container
+        if: always()
+        run: |
+          docker stop test-api
+          docker rm test-api
+      
+      - name: Scan Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: churn-api:test
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+      
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 10: Build and Push to Amazon ECR (Only on main branch after all tests pass)
+  # ============================================================================
+  deploy-to-ecr:
+    name: Deploy to Amazon ECR
+    runs-on: ubuntu-latest
+    needs: build-and-test-docker
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build and push Docker image to ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+      
+      - name: Image digest
+        run: echo ${{ steps.meta.outputs.digest }}
+      
+      - name: Verify image in ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name ${{ env.ECR_REPOSITORY }} \
+            --image-ids imageTag=latest \
+            --region ${{ env.AWS_REGION }}
+      
+      - name: Update ECS service (optional)
+        if: ${{ secrets.ECS_CLUSTER != '' && secrets.ECS_SERVICE != '' }}
+        run: |
+          aws ecs update-service \
+            --cluster ${{ secrets.ECS_CLUSTER }} \
+            --service ${{ secrets.ECS_SERVICE }} \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+        continue-on-error: true
+      
+      - name: Send deployment notification
+        if: success()
+        run: |
+          echo "✅ Successfully deployed to ECR"
+          echo "🐳 Image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest"
+          echo "📝 Commit: ${{ github.sha }}"
+      
+      - name: Deployment failed notification
+        if: failure()
+        run: |
+          echo "❌ Deployment to ECR failed"
+          echo "📝 Commit: ${{ github.sha }}"
+
+  # ============================================================================
+  # JOB 11: Create Release (Optional)
+  # ============================================================================
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: deploy-to-ecr
+    if: github.ref == 'refs/heads/main' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: |
+            🚀 New release deployed to ECR
+            
+            ### Changes
+            - Docker image pushed to ECR
+            - All tests passed
+            - Ready for production deployment
+          draft: false
+          prerelease: false

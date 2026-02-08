@@ -1,0 +1,22 @@
+================================================================================
+HOLDOUT DATA EVALUATION SUMMARY
+================================================================================
+
+Model: /content/drive/Othercomputers/My Laptop/machine_learning/E2E_projects/sales-data-churn/models/model_threshold_0.35_recall_0.9723.pkl
+Threshold: 0.35
+Holdout Samples: 51500
+
+METRICS:
+--------------------------------------------------------------------------------
+  RECALL         : 0.9737
+  PRECISION      : 0.5040
+  F1_SCORE       : 0.6642
+  ACCURACY       : 0.5336
+  ROC_AUC        : 0.6488
+
+CONFUSION MATRIX:
+--------------------------------------------------------------------------------
+  True Positives      : 23753
+  True Negatives      : 3725
+  False Positives     : 23380
+  False Negatives     : 642

@@ -16,6 +16,13 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
+import mlflow
+import os
+
+# Force mlflow tracking directory
+MLFLOW_DIR = "/content/drive/Othercomputers/My Laptop/machine_learning/E2E_projects/sales-data-churn/mlruns"
+os.makedirs(MLFLOW_DIR, exist_ok=True)
+mlflow.set_tracking_uri(f"file://{MLFLOW_DIR}")
 
 from .optuna_tuning import optimize_xgboost_hyperparameters
 

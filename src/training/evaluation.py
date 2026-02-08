@@ -45,23 +45,28 @@ def save_model_from_run(
 
     print(f"Recall: {recall:.4f}, Threshold: {threshold}")
 
+    # Format threshold to match saved filename (dots replaced with underscores)
+    safe_threshold = str(threshold).replace(".", "_")
+
     # Load model (try multiple paths)
     model = None
     try:
-        # Try pickle artifact first
-        artifact_uri = f"runs:/{run_id}/models/model_threshold_{threshold}.pkl"
+        # Try pickle artifact first (with safe threshold formatting)
+        artifact_uri = f"runs:/{run_id}/models/model_threshold_{safe_threshold}.pkl"
         local_path = mlflow.artifacts.download_artifacts(artifact_uri)
         with open(local_path, "rb") as f:
             model = pickle.load(f)
         print("✓ Loaded from pickle artifact")
-    except:
+    except Exception as e:
+        print(f"  ⚠ Could not load from pickle artifact: {e}")
         try:
             # Try MLflow format
             model = mlflow.xgboost.load_model(
-                f"runs:/{run_id}/model_threshold_{threshold}"
+                f"runs:/{run_id}/model_threshold_{safe_threshold}"
             )
             print("✓ Loaded from MLflow format")
-        except:
+        except Exception as e2:
+            print(f"  ⚠ Could not load from MLflow format: {e2}")
             # Fallback to generic path
             model = mlflow.xgboost.load_model(f"runs:/{run_id}/model")
             print("✓ Loaded from generic path")
