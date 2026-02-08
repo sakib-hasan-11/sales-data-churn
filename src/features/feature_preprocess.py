@@ -34,11 +34,19 @@ def preprocess_features(
     # 2️ ONE-HOT ENCODING (normalized column names)
     # =====================================================
 
-    subscription_dummies = pd.get_dummies(df["subscription_type"], prefix="sub")
-    contract_dummies = pd.get_dummies(df["contract_length"], prefix="contract")
-    tenure_dummies = pd.get_dummies(df["tenure_category"], prefix="tenuregroup")
-    age_dummies = pd.get_dummies(df["age_group"], prefix="agegroup")
-    spend_dummies = pd.get_dummies(df["spend_category"], prefix="spendcategory")
+    subscription_dummies = pd.get_dummies(
+        df["subscription_type"], prefix="sub", dtype=int
+    )
+    contract_dummies = pd.get_dummies(
+        df["contract_length"], prefix="contract", dtype=int
+    )
+    tenure_dummies = pd.get_dummies(
+        df["tenure_category"], prefix="tenuregroup", dtype=int
+    )
+    age_dummies = pd.get_dummies(df["age_group"], prefix="agegroup", dtype=int)
+    spend_dummies = pd.get_dummies(
+        df["spend_category"], prefix="spendcategory", dtype=int
+    )
 
     df = pd.concat(
         [
@@ -72,11 +80,24 @@ def preprocess_features(
     # =====================================================
     # 4️ SEPARATE TARGET VARIABLE
     # =====================================================
-    y = df["churn"].values
+    y = df["churn"].values.astype(int)
     df = df.drop(columns=["churn"])
 
     # =====================================================
-    # 5️ SCALE NUMERICAL FEATURES
+    # 5️ ENSURE ALL COLUMNS ARE NUMERIC
+    # =====================================================
+    # Convert any remaining object columns to numeric
+    for col in df.columns:
+        if df[col].dtype == "object" or df[col].dtype.name == "category":
+            # Try to convert to numeric, or drop if not possible
+            try:
+                df[col] = pd.to_numeric(df[col])
+            except (ValueError, TypeError):
+                print(f"Warning: Dropping non-numeric column: {col}")
+                df = df.drop(columns=[col])
+
+    # =====================================================
+    # 6️ SCALE NUMERICAL FEATURES
     # =====================================================
     excluded_cols = {"gender"}  # gender already encoded, churn already removed
     features_to_scale = [
@@ -91,13 +112,15 @@ def preprocess_features(
     print(f"Scaled {len(features_to_scale)} numerical features")
 
     # =====================================================
-    # 6️ PREPARE OUTPUT
+    # 7️ PREPARE OUTPUT
     # =====================================================
+    # Ensure all columns are float for consistency
+    df = df.astype(float)
     X = df.values
     feature_names = df.columns.tolist()
 
     # =====================================================
-    # 7️ OPTIONALLY SAVE OUTPUT
+    # 8️ OPTIONALLY SAVE OUTPUT
     # =====================================================
     if output_path is not None and name is not None:
         output_path = Path(output_path)

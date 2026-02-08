@@ -75,23 +75,31 @@ class InferencePreprocessor:
         dummies_list = []
 
         if "subscription_type" in df.columns:
-            subscription_dummies = pd.get_dummies(df["subscription_type"], prefix="sub")
+            subscription_dummies = pd.get_dummies(
+                df["subscription_type"], prefix="sub", dtype=int
+            )
             dummies_list.append(subscription_dummies)
 
         if "contract_length" in df.columns:
-            contract_dummies = pd.get_dummies(df["contract_length"], prefix="contract")
+            contract_dummies = pd.get_dummies(
+                df["contract_length"], prefix="contract", dtype=int
+            )
             dummies_list.append(contract_dummies)
 
         if "tenure_category" in df.columns:
-            tenure_dummies = pd.get_dummies(df["tenure_category"], prefix="tenuregroup")
+            tenure_dummies = pd.get_dummies(
+                df["tenure_category"], prefix="tenuregroup", dtype=int
+            )
             dummies_list.append(tenure_dummies)
 
         if "age_group" in df.columns:
-            age_dummies = pd.get_dummies(df["age_group"], prefix="agegroup")
+            age_dummies = pd.get_dummies(df["age_group"], prefix="agegroup", dtype=int)
             dummies_list.append(age_dummies)
 
         if "spend_category" in df.columns:
-            spend_dummies = pd.get_dummies(df["spend_category"], prefix="spendcategory")
+            spend_dummies = pd.get_dummies(
+                df["spend_category"], prefix="spendcategory", dtype=int
+            )
             dummies_list.append(spend_dummies)
 
         # Concatenate all dummies
