@@ -10,6 +10,7 @@ env:
   PYTHON_VERSION: '3.11'
   AWS_REGION: us-east-1
   ECR_REPOSITORY: churn-prediction-api
+  ECR_REPOSITORY_STREAMLIT: churn-prediction-frontend
   S3_BUCKET_NAME: churn-project-model
   S3_MODEL_NAME: churn_model_production.pkl
 
@@ -565,12 +566,95 @@ jobs:
           echo "Commit: ${{ github.sha }}"
 
   # ============================================================================
-  # JOB 12: Create Release (Optional)
+  # JOB 12: Build and Push Streamlit Frontend to ECR
+  # ============================================================================
+  push-streamlit-to-ecr:
+    name: Push Streamlit Frontend to ECR
+    runs-on: ubuntu-latest
+    needs: push-to-ecr
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr-streamlit
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Extract metadata for Streamlit Docker
+        id: meta-streamlit
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr-streamlit.outputs.registry }}/${{ env.ECR_REPOSITORY_STREAMLIT }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build and push Streamlit Docker image to ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.streamlit
+          push: true
+          tags: ${{ steps.meta-streamlit.outputs.tags }}
+          labels: ${{ steps.meta-streamlit.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+      
+      - name: Image digest
+        run: echo ${{ steps.meta-streamlit.outputs.digest }}
+      
+      - name: Verify Streamlit image in ECR
+        run: |
+          aws ecr describe-images \
+            --repository-name ${{ env.ECR_REPOSITORY_STREAMLIT }} \
+            --image-ids imageTag=latest \
+            --region ${{ env.AWS_REGION }}
+      
+      - name: Streamlit ECR Push Summary
+        run: |
+          echo "Streamlit Frontend image pushed to ECR successfully"
+          echo "Image: ${{ steps.login-ecr-streamlit.outputs.registry }}/${{ env.ECR_REPOSITORY_STREAMLIT }}:latest"
+          echo "Commit: ${{ github.sha }}"
+          echo ""
+          echo "To pull this image:"
+          echo "  aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr-streamlit.outputs.registry }}"
+          echo "  docker pull ${{ steps.login-ecr-streamlit.outputs.registry }}/${{ env.ECR_REPOSITORY_STREAMLIT }}:latest"
+          echo ""
+          echo "To run the Streamlit frontend:"
+          echo "  docker run -d -p 8501:8501 -e API_URL=http://your-api-url:8000 ${{ steps.login-ecr-streamlit.outputs.registry }}/${{ env.ECR_REPOSITORY_STREAMLIT }}:latest"
+      
+      - name: Streamlit deployment failed notification
+        if: failure()
+        run: |
+          echo "Push Streamlit to ECR failed"
+          echo "Commit: ${{ github.sha }}"
+
+  # ============================================================================
+  # JOB 13: Create Release (Optional)
   # ============================================================================
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: push-to-ecr
+    needs: [push-to-ecr, push-streamlit-to-ecr]
     if: startsWith(github.ref, 'refs/tags/v')
     
     steps:
@@ -588,9 +672,14 @@ jobs:
             🚀 New release pushed to ECR
             
             ### Changes
-            - Docker image pushed to ECR: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+            - API Docker image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            - Streamlit Frontend image: ${{ steps.login-ecr-streamlit.outputs.registry }}/${{ env.ECR_REPOSITORY_STREAMLIT }}:latest
             - All tests passed
             - Model loaded from S3: ${{ env.S3_BUCKET_NAME }}/${{ env.S3_MODEL_NAME }}
             - Ready for manual deployment to ECS or other container orchestration platform
+            
+            ### Deployment Instructions
+            1. Deploy API: `docker run -p 8000:8000 -e MODEL_SOURCE=s3 <api-image>`
+            2. Deploy Frontend: `docker run -p 8501:8501 -e API_URL=http://api:8000 <frontend-image>`
           draft: false
           prerelease: false
