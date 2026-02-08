@@ -30,3 +30,4 @@ echo "data/" >> .gitignore
 echo "outputs/" >> .gitignore
 
 models/
+data/
