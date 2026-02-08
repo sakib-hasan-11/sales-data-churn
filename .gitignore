@@ -23,3 +23,8 @@ data/raw/*
 
 mlruns/
 temp_model_save/
+
+echo "models/" >> .gitignore
+echo "mlruns/" >> .gitignore
+echo "data/" >> .gitignore
+echo "outputs/" >> .gitignore
