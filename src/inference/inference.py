@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from data_processing.preprocess import raw_preprocess
 from features.build_feature import build_feature
+from utils.s3_handler import S3ModelHandler
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +276,50 @@ class ModelLoader:
             raise
 
 
+# Load model from S3 bucket
+    @staticmethod
+    def load_from_s3(
+        model_name: str,
+        bucket_name: Optional[str] = None,
+        region: Optional[str] = None,
+        model_prefix: str = "models/",
+    ) -> Tuple[Any, List[str], dict]:
+        """
+        Load model from AWS S3.
+
+        Args:
+            model_name: Name of the model in S3
+            bucket_name: S3 bucket name (reads from env if not provided)
+            region: AWS region (reads from env if not provided)
+            model_prefix: Prefix for models in S3
+
+        Returns:
+            Tuple of (model, feature_names, metadata)
+        """
+        try:
+            logger.info(f"Loading model from S3: {model_name}")
+            
+            # Initialize S3 handler
+            s3_handler = S3ModelHandler(
+                bucket_name=bucket_name,
+                region=region,
+                model_prefix=model_prefix,
+            )
+
+            # Download and load model
+            model, metadata = s3_handler.download_model(model_name)
+
+            # Extract feature names
+            feature_names = ModelLoader._extract_feature_names(model)
+
+            logger.info(f"Model loaded successfully from S3. Features: {len(feature_names)}")
+            return model, feature_names, metadata
+
+        except Exception as e:
+            logger.error(f"Failed to load model from S3: {e}")
+            raise
+
+
 
 
 
@@ -378,6 +423,34 @@ class ChurnPredictor:
         """
         self.model, self.feature_names = ModelLoader.load_from_file(model_path)
         self.model_info = {"source": "file", "path": model_path}
+
+
+# Load model from S3 bucket
+    def load_model_from_s3(
+        self,
+        model_name: str,
+        bucket_name: Optional[str] = None,
+        region: Optional[str] = None,
+        model_prefix: str = "models/",
+    ) -> None:
+        """
+        Load model from AWS S3.
+
+        Args:
+            model_name: Name of the model in S3
+            bucket_name: S3 bucket name (reads from env if not provided)
+            region: AWS region (reads from env if not provided)
+            model_prefix: Prefix for models in S3
+        """
+        self.model, self.feature_names, metadata = ModelLoader.load_from_s3(
+            model_name, bucket_name, region, model_prefix
+        )
+        self.model_info = {
+            "source": "s3",
+            "model_name": model_name,
+            "bucket_name": bucket_name or os.getenv("S3_BUCKET_NAME"),
+            "metadata": metadata,
+        }
 
 
 
@@ -539,6 +612,31 @@ def create_predictor_from_file(
     """
     predictor = ChurnPredictor(threshold=threshold)
     predictor.load_model_from_file(model_path)
+    return predictor
+
+
+def create_predictor_from_s3(
+    model_name: str,
+    bucket_name: Optional[str] = None,
+    region: Optional[str] = None,
+    model_prefix: str = "models/",
+    threshold: float = 0.5,
+) -> ChurnPredictor:
+    """
+    Create and initialize a ChurnPredictor from S3.
+
+    Args:
+        model_name: Name of the model in S3
+        bucket_name: S3 bucket name (reads from env if not provided)
+        region: AWS region (reads from env if not provided)
+        model_prefix: Prefix for models in S3
+        threshold: Prediction threshold
+
+    Returns:
+        Initialized ChurnPredictor
+    """
+    predictor = ChurnPredictor(threshold=threshold)
+    predictor.load_model_from_s3(model_name, bucket_name, region, model_prefix)
     return predictor
 
 

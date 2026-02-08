@@ -1,4 +1,5 @@
 # Multi-stage build for production-ready container
+# Supports model loading from MLflow (local) or AWS S3 (production)
 FROM python:3.11-slim as builder
 
 # Set working directory

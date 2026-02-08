@@ -17,7 +17,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 # Add src to path
 sys.path.insert(0, "src")
-from inference.inference import ChurnPredictor, create_predictor_from_mlflow
+from inference.inference import (
+    ChurnPredictor,
+    create_predictor_from_mlflow,
+    create_predictor_from_s3,
+)
 
 
 
@@ -40,10 +44,19 @@ class Config:
     HOST = os.getenv("API_HOST", "0.0.0.0")
     PORT = int(os.getenv("API_PORT", "8000"))
 
-    # MLflow settings
+    # Model source: 'mlflow' or 's3'
+    MODEL_SOURCE = os.getenv("MODEL_SOURCE", "mlflow")
+
+    # MLflow settings (used when MODEL_SOURCE=mlflow)
     MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "./mlruns")
     MLFLOW_RUN_ID = os.getenv("MLFLOW_RUN_ID", None)
     MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "Colab_GPU_Training")
+
+    # S3 settings (used when MODEL_SOURCE=s3)
+    S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", None)
+    S3_MODEL_NAME = os.getenv("S3_MODEL_NAME", None)
+    AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+    S3_MODEL_PREFIX = os.getenv("S3_MODEL_PREFIX", "models/")
 
     # Model settings
     PREDICTION_THRESHOLD = float(os.getenv("PREDICTION_THRESHOLD", "0.5"))
@@ -177,14 +190,33 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Starting Churn Prediction API...")
+    logger.info(f"Model source: {Config.MODEL_SOURCE}")
+    
     try:
-        predictor = create_predictor_from_mlflow( # this function will load the model from MLflow using the provided run_id and experiment_name, and return a ChurnPredictor instance that we can use for predictions
-            run_id=Config.MLFLOW_RUN_ID,
-            experiment_name=Config.MLFLOW_EXPERIMENT_NAME,
-            tracking_uri=Config.MLFLOW_TRACKING_URI,
-            threshold=Config.PREDICTION_THRESHOLD,
-        )
-        logger.info("Model loaded successfully")
+        if Config.MODEL_SOURCE.lower() == "s3":
+            # Load model from S3
+            if not Config.S3_MODEL_NAME:
+                raise ValueError("S3_MODEL_NAME environment variable is required when using S3")
+            
+            logger.info(f"Loading model from S3: {Config.S3_MODEL_NAME}")
+            predictor = create_predictor_from_s3(
+                model_name=Config.S3_MODEL_NAME,
+                bucket_name=Config.S3_BUCKET_NAME,
+                region=Config.AWS_REGION,
+                model_prefix=Config.S3_MODEL_PREFIX,
+                threshold=Config.PREDICTION_THRESHOLD,
+            )
+            logger.info("Model loaded successfully from S3")
+        else:
+            # Load model from MLflow (default)
+            logger.info("Loading model from MLflow")
+            predictor = create_predictor_from_mlflow( # this function will load the model from MLflow using the provided run_id and experiment_name, and return a ChurnPredictor instance that we can use for predictions
+                run_id=Config.MLFLOW_RUN_ID,
+                experiment_name=Config.MLFLOW_EXPERIMENT_NAME,
+                tracking_uri=Config.MLFLOW_TRACKING_URI,
+                threshold=Config.PREDICTION_THRESHOLD,
+            )
+            logger.info("Model loaded successfully from MLflow")
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
         logger.warning("API starting without model")

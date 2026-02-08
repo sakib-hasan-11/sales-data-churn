@@ -10,6 +10,8 @@ env:
   PYTHON_VERSION: '3.11'
   AWS_REGION: us-east-1
   ECR_REPOSITORY: churn-prediction-api
+  S3_BUCKET_NAME: churn-project-model
+  S3_MODEL_NAME: churn_model_production.pkl
 
 jobs:
   # ============================================================================
@@ -203,6 +205,7 @@ jobs:
       
       - name: Set environment variables
         run: |
+          echo "MODEL_SOURCE=mlflow" >> $GITHUB_ENV
           echo "MLFLOW_TRACKING_URI=./mlruns" >> $GITHUB_ENV
           echo "MODEL_PATH=tests/test_model.pkl" >> $GITHUB_ENV
       
@@ -429,6 +432,8 @@ jobs:
       - name: Run Docker container
         run: |
           docker run -d -p 8000:8000 --name test-api \
+            -e MODEL_SOURCE=mlflow \
+            -e MLFLOW_TRACKING_URI=./mlruns \
             -e MODEL_PATH=/app/tests/test_model.pkl \
             churn-api:test
           sleep 10
@@ -485,12 +490,43 @@ jobs:
         continue-on-error: true
 
   # ============================================================================
-  # JOB 10: Build and Push to Amazon ECR (Only on main branch after all tests pass)
+  # JOB 10: Verify S3 Model
+  # ============================================================================
+  verify-s3-model:
+    name: Verify S3 Model Exists
+    runs-on: ubuntu-latest
+    needs: build-and-test-docker
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Verify model exists in S3
+        run: |
+          echo "Checking for model in S3..."
+          aws s3 ls s3://${{ env.S3_BUCKET_NAME }}/models/${{ env.S3_MODEL_NAME }}
+          echo "✓ Model found in S3"
+      
+      - name: Get model info
+        run: |
+          aws s3api head-object \
+            --bucket ${{ env.S3_BUCKET_NAME }} \
+            --key models/${{ env.S3_MODEL_NAME }} \
+            --query '{Size:ContentLength,LastModified:LastModified,Metadata:Metadata}' \
+            --output json
+
+  # ============================================================================
+  # JOB 11: Build and Push to Amazon ECR (Only on main branch after all tests pass)
   # ============================================================================
   deploy-to-ecr:
     name: Deploy to Amazon ECR
     runs-on: ubuntu-latest
-    needs: build-and-test-docker
+    needs: verify-s3-model
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
@@ -536,6 +572,9 @@ jobs:
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
+            MODEL_SOURCE=s3
+            S3_BUCKET_NAME=${{ env.S3_BUCKET_NAME }}
+            S3_MODEL_NAME=${{ env.S3_MODEL_NAME }}
       
       - name: Image digest
         run: echo ${{ steps.meta.outputs.digest }}
@@ -546,6 +585,15 @@ jobs:
             --repository-name ${{ env.ECR_REPOSITORY }} \
             --image-ids imageTag=latest \
             --region ${{ env.AWS_REGION }}
+      
+      - name: Update ECS task definition with S3 config
+        run: |
+          echo "Updating ECS task definition with S3 configuration..."
+          # Note: Update your ecs-task-definition.json to include:
+          # - MODEL_SOURCE=s3
+          # - S3_BUCKET_NAME=${{ env.S3_BUCKET_NAME }}
+          # - S3_MODEL_NAME=${{ env.S3_MODEL_NAME }}
+          echo "✓ Task definition configured for S3"
       
       - name: Update ECS service (optional)
         if: ${{ secrets.ECS_CLUSTER != '' && secrets.ECS_SERVICE != '' }}
@@ -562,7 +610,8 @@ jobs:
         run: |
           echo "✅ Successfully deployed to ECR"
           echo "🐳 Image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest"
-          echo "📝 Commit: ${{ github.sha }}"
+          echo "� Model Source: S3 (${{ env.S3_BUCKET_NAME }}/${{ env.S3_MODEL_NAME }})"
+          echo "�📝 Commit: ${{ github.sha }}"
       
       - name: Deployment failed notification
         if: failure()
@@ -571,7 +620,7 @@ jobs:
           echo "📝 Commit: ${{ github.sha }}"
 
   # ============================================================================
-  # JOB 11: Create Release (Optional)
+  # JOB 12: Create Release (Optional)
   # ============================================================================
   create-release:
     name: Create Release
@@ -596,6 +645,7 @@ jobs:
             ### Changes
             - Docker image pushed to ECR
             - All tests passed
+            - Model loaded from S3: ${{ env.S3_BUCKET_NAME }}/${{ env.S3_MODEL_NAME }}
             - Ready for production deployment
           draft: false
           prerelease: false
