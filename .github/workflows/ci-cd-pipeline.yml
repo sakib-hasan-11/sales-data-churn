@@ -2,9 +2,9 @@ name: CI/CD Pipeline - Test and Deploy to ECR
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
 
 env:
   PYTHON_VERSION: '3.11'

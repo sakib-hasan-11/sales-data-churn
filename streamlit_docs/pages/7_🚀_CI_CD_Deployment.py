@@ -87,14 +87,20 @@ This project includes a **complete CI/CD pipeline** that:
 - 🧪 Runs **140+ automated tests** before deployment
 - 🐳 Builds and tests **Docker containers**
 - 🔒 Performs **security scanning**
-- ☁️ Deploys to **Amazon ECR** automatically
+- 🗄️ Verifies **model exists in S3** before deployment
+- ☁️ Deploys to **Amazon ECR** automatically (API + Frontend)
 - 📊 Monitors **performance metrics**
 
 **Location**: `.github/workflows/ci-cd-pipeline.yml`
 
 **Triggers**: Push to main/develop, Pull Requests
 
-**Result**: Only deploys if ALL tests pass! ✅
+**AWS Resources**:
+- **S3 Bucket**: `churn-project-model` (model storage)
+- **ECR Repository 1**: `churn-prediction-api` (backend)
+- **ECR Repository 2**: `churn-prediction-frontend` (frontend)
+
+**Result**: Only deploys if ALL tests pass + model verified in S3! ✅
 """)
 
 st.markdown("---")
@@ -106,7 +112,7 @@ st.markdown(
 )
 
 st.markdown("""
-### **11 Sequential Jobs** - All must pass before deployment!
+### **13 Sequential Jobs** - All must pass before deployment!
 
 ```
 📝 Push to GitHub
@@ -129,15 +135,20 @@ st.markdown("""
     ↓
 9️⃣ Build & Test Docker Image
     ↓
-🔟 Push to Amazon ECR (main branch only)
+🔟 Verify S3 Model Exists (main branch only)
     ↓
-1️⃣1️⃣ Update ECS Service (optional)
+1️⃣1️⃣ Push API to Amazon ECR (main branch only)
+    ↓
+1️⃣2️⃣ Push Streamlit Frontend to ECR (main branch only)
+    ↓
+1️⃣3️⃣ Create Release (on version tags)
     ↓
 ✅ Deployed to Production!
 ```
 
-**Total Pipeline Time**: ~8-12 minutes
+**Total Pipeline Time**: ~15-18 minutes (full deployment)
 **Success Rate Target**: 100% tests pass
+**Artifacts**: 2 Docker images in ECR + Model in S3
 """)
 
 st.markdown("---")
@@ -614,6 +625,596 @@ st.markdown(
 )
 st.markdown("</div>", unsafe_allow_html=True)
 
+# Job 10
+st.markdown('<div class="job-box">', unsafe_allow_html=True)
+st.markdown(
+    '<div class="job-name">Job 10: Verify S3 Model</div>', unsafe_allow_html=True
+)
+st.markdown(
+    """
+**Purpose**: Ensure trained model exists in S3 before deployment
+
+**Trigger**: Only on `main` branch push + all tests passed
+
+**Steps**:
+
+1. **Configure AWS Credentials**
+   ```yaml
+   - uses: aws-actions/configure-aws-credentials@v4
+     with:
+       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+       aws-region: us-east-1
+   ```
+
+2. **Check Model Exists in S3**
+   ```bash
+   # List model file
+   aws s3 ls s3://churn-project-model/models/churn_model_production.pkl
+   
+   # Output if exists:
+   # 2024-02-08 10:30:45   15234567 churn_model_production.pkl
+   ```
+
+3. **Get Model Metadata**
+   ```bash
+   aws s3api head-object \\
+     --bucket churn-project-model \\
+     --key models/churn_model_production.pkl \\
+     --query '{Size:ContentLength,LastModified:LastModified,Metadata:Metadata}'
+   ```
+
+**S3 Configuration**:
+- **Bucket**: `churn-project-model`
+- **Path**: `models/churn_model_production.pkl`
+- **Region**: `us-east-1`
+- **Access**: Private (IAM credentials required)
+
+**What it Validates**:
+✅ Model file exists in S3
+✅ File is accessible with current credentials
+✅ Model was trained and uploaded successfully
+✅ Ready for container deployment
+
+**Success**: Model verified → Proceed to ECR push
+**Failure**: Model missing → Stop pipeline (prevents deploying without model)
+
+**Why This Matters**:
+- API containers load model from S3 at startup
+- No model = API fails to start
+- Prevents deploying broken containers
+- Ensures model-code version compatibility
+""",
+    unsafe_allow_html=True,
+)
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Job 11
+st.markdown('<div class="job-box">', unsafe_allow_html=True)
+st.markdown(
+    '<div class="job-name">Job 11: Push API to Amazon ECR</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """
+**Purpose**: Build and push API Docker image to Amazon ECR
+
+**Trigger**: After S3 model verification passes (main branch only)
+
+**Repository**: `churn-prediction-api`
+
+**Steps**:
+
+1. **Configure AWS Credentials**
+   ```bash
+   # Same credentials as S3 verification
+   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+   AWS_REGION: us-east-1
+   ```
+
+2. **Login to Amazon ECR**
+   ```bash
+   aws ecr get-login-password --region us-east-1 | \\
+     docker login --username AWS --password-stdin \\
+     <account-id>.dkr.ecr.us-east-1.amazonaws.com
+   ```
+
+3. **Set Up Docker Buildx**
+   ```bash
+   # Multi-platform build support
+   docker buildx create --use
+   ```
+
+4. **Extract Docker Metadata & Tags**
+   ```yaml
+   tags: |
+     type=ref,event=branch          # branch name
+     type=ref,event=pr               # PR number
+     type=semver,pattern={{version}} # v1.2.3
+     type=semver,pattern={{major}}.{{minor}}  # v1.2
+     type=sha,prefix={{branch}}-     # main-abc123
+     type=raw,value=latest,enable={{is_default_branch}}  # latest
+   ```
+   
+   **Resulting Tags**:
+   - `churn-prediction-api:latest`
+   - `churn-prediction-api:main`
+   - `churn-prediction-api:main-abc123def` (commit SHA)
+
+5. **Build and Push Docker Image**
+   ```bash
+   docker build -t <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest .
+   docker push <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
+   ```
+   
+   **Build Arguments Passed**:
+   ```dockerfile
+   BUILD_DATE=${{ github.event.head_commit.timestamp }}
+   VCS_REF=${{ github.sha }}
+   MODEL_SOURCE=s3
+   S3_BUCKET_NAME=churn-project-model
+   S3_MODEL_NAME=churn_model_production.pkl
+   ```
+
+6. **Verify Image in ECR**
+   ```bash
+   aws ecr describe-images \\
+     --repository-name churn-prediction-api \\
+     --image-ids imageTag=latest \\
+     --region us-east-1
+   ```
+   
+   **Output**:
+   ```json
+   {
+     "imageDetails": [{
+       "imageTag": "latest",
+       "imageSizeInBytes": 1234567890,
+       "imagePushedAt": "2024-02-08T10:45:30Z",
+       "imageDigest": "sha256:abc123..."
+     }]
+   }
+   ```
+
+7. **Print Deployment Instructions**
+   ```bash
+   echo "✅ Successfully pushed to ECR"
+   echo "Image: <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest"
+   echo "Model Source: S3 bucket churn-project-model"
+   echo "Commit: ${{ github.sha }}"
+   echo ""
+   echo "To pull this image:"
+   echo "  aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com"
+   echo "  docker pull <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest"
+   ```
+
+**Image Details**:
+- **Base Image**: `python:3.11-slim`
+- **Size**: ~800MB (optimized multi-stage build)
+- **Model Loading**: From S3 at container startup
+- **Environment Variables**:
+  - `MODEL_SOURCE=s3`
+  - `S3_BUCKET_NAME=churn-project-model`
+  - `S3_MODEL_NAME=churn_model_production.pkl`
+  - `AWS_REGION=us-east-1`
+
+**Cache Optimization**:
+```yaml
+cache-from: type=gha        # Use GitHub Actions cache
+cache-to: type=gha,mode=max # Save layers for next build
+```
+- First build: ~8-10 minutes
+- Cached builds: ~2-3 minutes
+
+**Success Criteria**:
+✅ Image builds successfully
+✅ Pushes to ECR without errors
+✅ Tagged with commit SHA for traceability
+✅ Available for deployment
+
+**Result**: 
+API container ready in ECR → Can be deployed to ECS/Fargate/EC2
+""",
+    unsafe_allow_html=True,
+)
+st.markdown("</div>", unsafe_allow_html=True)
+
+# Job 12
+st.markdown('<div class="job-box">', unsafe_allow_html=True)
+st.markdown(
+    '<div class="job-name">Job 12: Push Streamlit Frontend to ECR</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """
+**Purpose**: Build and push Streamlit frontend Docker image to Amazon ECR
+
+**Trigger**: After API push succeeds (main branch only)
+
+**Repository**: `churn-prediction-frontend`
+
+**Steps**:
+
+1. **Configure AWS & Login to ECR**
+   ```bash
+   # Same authentication as API push
+   aws ecr get-login-password --region us-east-1 | \\
+     docker login --username AWS --password-stdin \\
+     <account-id>.dkr.ecr.us-east-1.amazonaws.com
+   ```
+
+2. **Set Up Docker Buildx**
+   ```bash
+   docker buildx create --use
+   ```
+
+3. **Extract Docker Metadata & Tags**
+   ```yaml
+   tags: |
+     type=ref,event=branch          # main
+     type=ref,event=pr               # PR number
+     type=semver,pattern={{version}} # v1.2.3
+     type=semver,pattern={{major}}.{{minor}}
+     type=sha,prefix={{branch}}-     # main-abc123
+     type=raw,value=latest,enable={{is_default_branch}}  # latest
+   ```
+   
+   **Resulting Tags**:
+   - `churn-prediction-frontend:latest`
+   - `churn-prediction-frontend:main`
+   - `churn-prediction-frontend:main-abc123def`
+
+4. **Build and Push Streamlit Docker Image**
+   ```bash
+   docker build \\
+     -f Dockerfile.streamlit \\
+     -t <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest .
+   
+   docker push <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest
+   ```
+   
+   **Build Arguments**:
+   ```dockerfile
+   BUILD_DATE=${{ github.event.head_commit.timestamp }}
+   VCS_REF=${{ github.sha }}
+   ```
+
+5. **Verify Streamlit Image in ECR**
+   ```bash
+   aws ecr describe-images \\
+     --repository-name churn-prediction-frontend \\
+     --image-ids imageTag=latest \\
+     --region us-east-1
+   ```
+
+6. **Print Deployment Instructions**
+   ```bash
+   echo "✅ Streamlit Frontend image pushed to ECR successfully"
+   echo "Image: <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest"
+   echo "Commit: ${{ github.sha }}"
+   echo ""
+   echo "To pull this image:"
+   echo "  aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com"
+   echo "  docker pull <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest"
+   echo ""
+   echo "To run the Streamlit frontend:"
+   echo "  docker run -d -p 8501:8501 -e API_URL=http://your-api-url:8000 <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest"
+   ```
+
+**Streamlit Image Details**:
+- **Base Image**: `python:3.11-slim`
+- **Size**: ~1.2GB (includes Streamlit + visualization libraries)
+- **Exposed Port**: `8501` (Streamlit default)
+- **Environment Variables**:
+  - `API_URL` - Backend API endpoint URL
+  - `STREAMLIT_SERVER_PORT=8501`
+  - `STREAMLIT_SERVER_ADDRESS=0.0.0.0`
+
+**What's Included**:
+- Streamlit application (`streamlit_app.py`)
+- Documentation pages (`streamlit_docs/`)
+- CSS styling and assets
+- Requirements (`requirements_streamlit.txt`)
+
+**Cache Optimization**:
+```yaml
+cache-from: type=gha
+cache-to: type=gha,mode=max
+```
+- First build: ~6-8 minutes
+- Cached builds: ~1-2 minutes
+
+**Success Criteria**:
+✅ Streamlit image builds successfully
+✅ Pushes to ECR without errors
+✅ Tagged with commit SHA
+✅ Ready for deployment
+
+**Deployment Configuration**:
+```bash
+# Environment variable needed at runtime
+docker run -d \\
+  -p 8501:8501 \\
+  -e API_URL=http://api-service:8000 \\
+  --name streamlit-frontend \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest
+```
+
+**Result**: 
+Frontend container ready in ECR → Can be deployed alongside API
+
+**Complete Stack**:
+- Backend API: Port 8000 (churn-prediction-api)
+- Frontend: Port 8501 (churn-prediction-frontend)
+- Model: Loaded from S3 (churn-project-model)
+""",
+    unsafe_allow_html=True,
+)
+st.markdown("</div>", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# S3 Bucket Details Section
+st.markdown(
+    '<div class="section-header">☁️ S3 Model Storage Details</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown("""
+### **S3 Bucket Configuration**
+
+The trained model is stored in Amazon S3 for centralized access:
+
+**Bucket Structure**:
+```
+s3://churn-project-model/
+├── models/
+│   ├── churn_model_production.pkl     # Production model
+│   ├── churn_model_v1.0.0.pkl        # Versioned backups
+│   └── model_metadata.json            # Model info
+├── artifacts/
+│   ├── feature_names.json
+│   └── preprocessing_config.json
+└── experiments/
+    └── mlflow_runs/
+```
+
+**Production Model Details**:
+- **Bucket**: `churn-project-model`
+- **Key**: `models/churn_model_production.pkl`
+- **Region**: `us-east-1`
+- **Size**: ~15-20 MB (pickled scikit-learn model)
+- **Format**: Pickle (.pkl)
+- **Access**: Private (IAM credentials required)
+
+**IAM Permissions Required**:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::churn-project-model/*",
+        "arn:aws:s3:::churn-project-model"
+      ]
+    }
+  ]
+}
+```
+
+**Upload Model to S3** (one-time setup):
+```bash
+# Using AWS CLI
+aws s3 cp models/churn_model_production.pkl \\
+  s3://churn-project-model/models/churn_model_production.pkl \\
+  --region us-east-1
+
+# Verify upload
+aws s3 ls s3://churn-project-model/models/
+
+# Get model info
+aws s3api head-object \\
+  --bucket churn-project-model \\
+  --key models/churn_model_production.pkl
+```
+
+**Using Python (boto3)**:
+```python
+import boto3
+
+# Initialize S3 client
+s3_client = boto3.client('s3', region_name='us-east-1')
+
+# Upload model
+with open('models/churn_model_production.pkl', 'rb') as f:
+    s3_client.put_object(
+        Bucket='churn-project-model',
+        Key='models/churn_model_production.pkl',
+        Body=f
+    )
+
+print("✅ Model uploaded to S3")
+```
+
+**Model Versioning Strategy**:
+```bash
+# Keep production model
+s3://churn-project-model/models/churn_model_production.pkl
+
+# Archive versions with timestamp
+s3://churn-project-model/models/archive/churn_model_2024-02-08_v1.pkl
+s3://churn-project-model/models/archive/churn_model_2024-02-07_v1.pkl
+
+# Rollback if needed
+aws s3 cp \\
+  s3://churn-project-model/models/archive/churn_model_2024-02-07_v1.pkl \\
+  s3://churn-project-model/models/churn_model_production.pkl
+```
+
+**Benefits of S3 Storage**:
+- ✅ **Centralized**: Single source of truth
+- ✅ **Versioned**: Keep model history
+- ✅ **Scalable**: No container size limits
+- ✅ **Accessible**: Multiple containers can load same model
+- ✅ **Durable**: 99.999999999% durability (11 nines)
+- ✅ **Secure**: IAM-based access control
+
+**Container Integration**:
+```dockerfile
+# Dockerfile
+ENV MODEL_SOURCE=s3
+ENV S3_BUCKET_NAME=churn-project-model
+ENV S3_MODEL_NAME=churn_model_production.pkl
+ENV AWS_REGION=us-east-1
+
+# Model loaded at container startup via inference.py
+```
+
+**Monitoring S3 Usage**:
+```bash
+# Check model access logs
+aws s3api get-bucket-logging --bucket churn-project-model
+
+# Monitor S3 requests in CloudWatch
+aws cloudwatch get-metric-statistics \\
+  --namespace AWS/S3 \\
+  --metric-name NumberOfObjects \\
+  --dimensions Name=BucketName,Value=churn-project-model
+```
+""")
+
+st.markdown("---")
+
+# ECR Details Section
+st.markdown(
+    '<div class="section-header">🐳 Amazon ECR Repository Details</div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown("""
+### **ECR Repository Configuration**
+
+Two repositories are created for API and Frontend:
+
+**Repository 1: API Backend**
+- **Name**: `churn-prediction-api`
+- **Region**: `us-east-1`
+- **URI**: `<account-id>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api`
+- **Tag Strategy**: `latest`, `main`, `main-<commit-sha>`
+
+**Repository 2: Streamlit Frontend**
+- **Name**: `churn-prediction-frontend`
+- **Region**: `us-east-1`
+- **URI**: `<account-id>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend`
+- **Tag Strategy**: `latest`, `main`, `main-<commit-sha>`
+
+**Create ECR Repositories** (one-time setup):
+```bash
+# Create API repository
+aws ecr create-repository \\
+  --repository-name churn-prediction-api \\
+  --region us-east-1 \\
+  --image-scanning-configuration scanOnPush=true \\
+  --encryption-configuration encryptionType=AES256
+
+# Create Frontend repository
+aws ecr create-repository \\
+  --repository-name churn-prediction-frontend \\
+  --region us-east-1 \\
+  --image-scanning-configuration scanOnPush=true \\
+  --encryption-configuration encryptionType=AES256
+```
+
+**List Images in ECR**:
+```bash
+# List API images
+aws ecr list-images \\
+  --repository-name churn-prediction-api \\
+  --region us-east-1
+
+# List Frontend images
+aws ecr list-images \\
+  --repository-name churn-prediction-frontend \\
+  --region us-east-1
+```
+
+**Pull Images Locally**:
+```bash
+# Login to ECR
+aws ecr get-login-password --region us-east-1 | \\
+  docker login --username AWS --password-stdin \\
+  <account-id>.dkr.ecr.us-east-1.amazonaws.com
+
+# Pull API image
+docker pull <account-id>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
+
+# Pull Frontend image
+docker pull <account-id>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest
+```
+
+**Image Lifecycle Policy** (auto-cleanup):
+```json
+{
+  "rules": [
+    {
+      "rulePriority": 1,
+      "description": "Keep last 10 images",
+      "selection": {
+        "tagStatus": "any",
+        "countType": "imageCountMoreThan",
+        "countNumber": 10
+      },
+      "action": {
+        "type": "expire"
+      }
+    }
+  ]
+}
+```
+
+**Apply Lifecycle Policy**:
+```bash
+aws ecr put-lifecycle-policy \\
+  --repository-name churn-prediction-api \\
+  --lifecycle-policy-text file://lifecycle-policy.json
+```
+
+**Security Features**:
+- ✅ **Image Scanning**: Automatic vulnerability scanning on push
+- ✅ **Encryption**: AES256 encryption at rest
+- ✅ **IAM Access**: Fine-grained access control
+- ✅ **Private**: Not publicly accessible
+- ✅ **Audit Logs**: CloudTrail logging
+
+**Cost Optimization**:
+```bash
+# View repository size
+aws ecr describe-repositories \\
+  --repository-names churn-prediction-api churn-prediction-frontend
+
+# Storage cost: $0.10 per GB/month
+# Transfer: Free within same region
+```
+
+**CI/CD Integration**:
+```yaml
+# Automatic push on main branch
+- Push code to main
+- Run all tests
+- Verify S3 model
+- Build Docker images
+- Push to ECR (if tests pass)
+- Deploy to ECS (optional)
+```
+""")
+
 st.markdown("---")
 
 # GitHub Secrets
@@ -731,7 +1332,7 @@ st.markdown("---")
 
 # Deployment Process
 st.markdown(
-    '<div class="section-header">☁️ Deployment to Amazon ECR</div>',
+    '<div class="section-header">☁️ Deployment to AWS (S3 + ECR)</div>',
     unsafe_allow_html=True,
 )
 
@@ -743,58 +1344,107 @@ When you push to the `main` branch and all tests pass:
 
 st.markdown('<div class="job-box">', unsafe_allow_html=True)
 st.markdown(
-    '<div class="job-name">Job 10: Deploy to Amazon ECR</div>', unsafe_allow_html=True
+    '<div class="job-name">Deployment Flow: S3 + ECR</div>', unsafe_allow_html=True
 )
 st.markdown(
     """
-**Trigger**: Push to `main` branch + all tests passed
+**Trigger**: Push to `main` branch + all 140+ tests passed
 
-**Steps**:
+**Complete Deployment Process**:
 
-1. **Authenticate to AWS**
-   ```bash
-   # Uses GitHub secrets
-   aws ecr get-login-password --region us-east-1 | \\
-     docker login --username AWS --password-stdin \\
-     <account>.dkr.ecr.us-east-1.amazonaws.com
-   ```
+**Stage 1: Verify Model in S3** (Job 10)
+```bash
+# Check model exists and is accessible
+aws s3 ls s3://churn-project-model/models/churn_model_production.pkl
 
-2. **Tag Docker Image**
-   ```bash
-   # Multiple tags for traceability
-   latest              # Always points to latest main
-   main-<commit-sha>   # Specific commit
-   v1.2.3             # Semantic version (if tagged)
-   ```
+✅ Model verified
+✅ Ready for container deployment
+```
 
-3. **Push to ECR**
-   ```bash
-   docker push <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
-   docker push <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:main-abc123
-   ```
+**Stage 2: Push API to ECR** (Job 11)
+```bash
+# Authenticate to AWS ECR
+aws ecr get-login-password --region us-east-1 | \\
+  docker login --username AWS --password-stdin \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com
 
-4. **Verify Upload**
-   ```bash
-   # Check image exists in ECR
-   aws ecr describe-images \\
-     --repository-name churn-prediction-api \\
-     --image-ids imageTag=latest
-   ```
+# Build Docker image
+docker build -t churn-prediction-api:latest .
 
-5. **Update ECS (Optional)**
-   ```bash
-   # If ECS_CLUSTER and ECS_SERVICE are configured
-   aws ecs update-service \\
-     --cluster churn-prediction-cluster \\
-     --service churn-api-service \\
-     --force-new-deployment
-   ```
+# Tag for ECR
+docker tag churn-prediction-api:latest \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
+
+docker tag churn-prediction-api:latest \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:main-<commit-sha>
+
+# Push to ECR
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:main-<commit-sha>
+
+✅ API image pushed to ECR
+✅ Tagged with: latest, main, main-<commit-sha>
+```
+
+**Stage 3: Push Streamlit Frontend to ECR** (Job 12)
+```bash
+# Build Streamlit Docker image
+docker build -f Dockerfile.streamlit -t churn-prediction-frontend:latest .
+
+# Tag for ECR
+docker tag churn-prediction-frontend:latest \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest
+
+docker tag churn-prediction-frontend:latest \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:main-<commit-sha>
+
+# Push to ECR
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:main-<commit-sha>
+
+✅ Frontend image pushed to ECR
+✅ Tagged with: latest, main, main-<commit-sha>
+```
+
+**Verification**:
+```bash
+# Verify both images in ECR
+aws ecr describe-images \\
+  --repository-name churn-prediction-api \\
+  --image-ids imageTag=latest
+
+aws ecr describe-images \\
+  --repository-name churn-prediction-frontend \\
+  --image-ids imageTag=latest
+```
 
 **Result**: 
-- ✅ Image available in ECR
-- ✅ Tagged with commit SHA for traceability
-- ✅ ECS service updated (if configured)
-- ✅ Zero downtime deployment
+- ✅ Model verified in S3: `s3://churn-project-model/models/churn_model_production.pkl`
+- ✅ API image in ECR: `churn-prediction-api:latest`
+- ✅ Frontend image in ECR: `churn-prediction-frontend:latest`
+- ✅ Both tagged with commit SHA for traceability
+- ✅ Ready for deployment to ECS/Fargate/EC2
+- ✅ Zero downtime deployment possible
+
+**Deployment Commands** (after push):
+```bash
+# Pull and run API
+docker pull <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
+docker run -d -p 8000:8000 \\
+  -e MODEL_SOURCE=s3 \\
+  -e S3_BUCKET_NAME=churn-project-model \\
+  -e S3_MODEL_NAME=churn_model_production.pkl \\
+  -e AWS_REGION=us-east-1 \\
+  --name churn-api \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
+
+# Pull and run Frontend
+docker pull <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest
+docker run -d -p 8501:8501 \\
+  -e API_URL=http://<api-host>:8000 \\
+  --name churn-frontend \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest
+```
 """,
     unsafe_allow_html=True,
 )
@@ -866,34 +1516,99 @@ git push origin main
 6. Edge Cases Tests ✅ (2 minutes)
 7. Performance Tests ✅ (1 minute)
 8. Security Scan ✅ (1 minute)
-9. Build Docker ✅ (3 minutes)
-10. Push to ECR ✅ (2 minutes)
-11. Update ECS ✅ (1 minute)
+9. Build & Test Docker ✅ (3 minutes)
+10. Verify S3 Model ✅ (30 seconds)
+11. Push API to ECR ✅ (2 minutes)
+12. Push Frontend to ECR ✅ (2 minutes)
 
-Total: ~15 minutes
+Total: ~15-18 minutes
 ```
 
 **Result**:
-- 🎉 New version deployed to production!
-- 📦 Available in ECR as `latest`
-- 🚀 ECS automatically pulls new image
+- 🎉 New version deployed to AWS!
+- 📦 Model verified in S3: `s3://churn-project-model/models/churn_model_production.pkl`
+- 🐳 API image in ECR: `churn-prediction-api:latest`
+- 🎨 Frontend image in ECR: `churn-prediction-frontend:latest`
+- 🚀 Ready for ECS/Fargate deployment
 - 🔍 Fully tested and validated
 
 ---
 
 **Step 4: Verify Deployment**
 ```bash
-# Check ECR
-aws ecr list-images --repository-name churn-prediction-api
+# Check S3 model
+aws s3 ls s3://churn-project-model/models/
+aws s3api head-object \\
+  --bucket churn-project-model \\
+  --key models/churn_model_production.pkl
 
-# Check ECS service
-aws ecs describe-services \\
-  --cluster churn-prediction-cluster \\
-  --services churn-api-service
+# Check ECR images
+aws ecr list-images \\
+  --repository-name churn-prediction-api \\
+  --region us-east-1
+
+aws ecr list-images \\
+  --repository-name churn-prediction-frontend \\
+  --region us-east-1
+
+# Get image details
+aws ecr describe-images \\
+  --repository-name churn-prediction-api \\
+  --image-ids imageTag=latest
+
+aws ecr describe-images \\
+  --repository-name churn-prediction-frontend \\
+  --image-ids imageTag=latest
+
+# Test locally (optional)
+aws ecr get-login-password --region us-east-1 | \\
+  docker login --username AWS --password-stdin \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com
+
+docker pull <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
+docker run -d -p 8000:8000 \\
+  -e MODEL_SOURCE=s3 \\
+  -e S3_BUCKET_NAME=churn-project-model \\
+  -e S3_MODEL_NAME=churn_model_production.pkl \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
 
 # Test API
-curl https://your-api-url.com/health
-curl -X POST https://your-api-url.com/predict -d '{...}'
+curl http://localhost:8000/health
+curl -X POST http://localhost:8000/predict -d '{...}'
+```
+
+---
+
+**Step 5: Deploy to Production (ECS/Fargate)**
+```bash
+# Option 1: Update ECS service (if using ECS)
+aws ecs update-service \\
+  --cluster churn-prediction-cluster \\
+  --service churn-api-service \\
+  --force-new-deployment
+
+aws ecs update-service \\
+  --cluster churn-prediction-cluster \\
+  --service churn-frontend-service \\
+  --force-new-deployment
+
+# Option 2: Use docker-compose (for EC2)
+# Create docker-compose.yml with ECR images
+docker-compose pull
+docker-compose up -d
+
+# Option 3: Manual docker run
+docker run -d -p 8000:8000 \\
+  --name churn-api \\
+  -e MODEL_SOURCE=s3 \\
+  -e S3_BUCKET_NAME=churn-project-model \\
+  -e S3_MODEL_NAME=churn_model_production.pkl \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest
+
+docker run -d -p 8501:8501 \\
+  --name churn-frontend \\
+  -e API_URL=http://api-host:8000 \\
+  <account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest
 ```
 """)
 
@@ -970,50 +1685,138 @@ st.markdown(
 st.markdown("""
 ### **Before Running the Pipeline**
 
-**1. Create ECR Repository**
+**1. Create S3 Bucket for Model Storage**
 ```bash
+# Create S3 bucket
+aws s3 mb s3://churn-project-model --region us-east-1
+
+# Enable versioning (recommended)
+aws s3api put-bucket-versioning \\
+  --bucket churn-project-model \\
+  --versioning-configuration Status=Enabled
+
+# Upload trained model
+aws s3 cp models/churn_model_production.pkl \\
+  s3://churn-project-model/models/churn_model_production.pkl
+
+# Verify upload
+aws s3 ls s3://churn-project-model/models/
+```
+
+**2. Create ECR Repositories**
+```bash
+# Create API repository
 aws ecr create-repository \\
   --repository-name churn-prediction-api \\
-  --region us-east-1
+  --region us-east-1 \\
+  --image-scanning-configuration scanOnPush=true
+
+# Create Frontend repository
+aws ecr create-repository \\
+  --repository-name churn-prediction-frontend \\
+  --region us-east-1 \\
+  --image-scanning-configuration scanOnPush=true
 ```
 
-**2. Create IAM User**
+**3. Create IAM User with Required Permissions**
 ```bash
 # Create user
-aws iam create-user --user-name github-actions-ecr
+aws iam create-user --user-name github-actions-deploy
 
-# Attach policy
+# Create policy file (deploy-policy.json):
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:DescribeRepositories",
+        "ecr:DescribeImages"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:HeadObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::churn-project-model",
+        "arn:aws:s3:::churn-project-model/*"
+      ]
+    }
+  ]
+}
+
+# Create and attach policy
+aws iam create-policy \\
+  --policy-name GitHubActionsDeployPolicy \\
+  --policy-document file://deploy-policy.json
+
 aws iam attach-user-policy \\
-  --user-name github-actions-ecr \\
-  --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser
+  --user-name github-actions-deploy \\
+  --policy-arn arn:aws:iam::<account-id>:policy/GitHubActionsDeployPolicy
 
 # Create access key
-aws iam create-access-key --user-name github-actions-ecr
+aws iam create-access-key --user-name github-actions-deploy
+# ⚠️ Save the AccessKeyId and SecretAccessKey!
 ```
 
-**3. Add GitHub Secrets**
+**4. Add GitHub Secrets**
 - Go to: `Repository → Settings → Secrets and variables → Actions`
-- Add `AWS_ACCESS_KEY_ID`
-- Add `AWS_SECRET_ACCESS_KEY`
+- Click `New repository secret`
+- Add the following secrets:
+  - `AWS_ACCESS_KEY_ID`: Your IAM access key ID
+  - `AWS_SECRET_ACCESS_KEY`: Your IAM secret access key
 
-**4. Create Test Model**
+**5. Create Test Model**
 ```bash
 # Required for CI/CD tests
 python tests/create_test_model.py
+
+# Verify test model created
+ls -lh tests/test_model.pkl
 ```
 
-**5. Commit All Files**
+**6. Commit All Files**
 ```bash
 git add .github/workflows/ci-cd-pipeline.yml
 git add tests/
-git commit -m "Add CI/CD pipeline"
+git add Dockerfile
+git add Dockerfile.streamlit
+git add docker-compose.yml
+git commit -m "Add CI/CD pipeline with S3 and ECR deployment"
 git push origin main
 ```
 
-**6. Monitor First Run**
+**7. Monitor First Run**
 - Go to: `GitHub → Actions tab`
 - Watch pipeline execute
 - Verify all jobs pass
+- Check AWS:
+  - S3 model verified ✅
+  - ECR API image pushed ✅
+  - ECR Frontend image pushed ✅
+
+**8. Verify AWS Resources**
+```bash
+# Check S3 model
+aws s3 ls s3://churn-project-model/models/
+
+# Check ECR images
+aws ecr describe-images --repository-name churn-prediction-api --region us-east-1
+aws ecr describe-images --repository-name churn-prediction-frontend --region us-east-1
+```
 """)
 
 st.markdown("---")
@@ -1268,8 +2071,8 @@ st.markdown(
 
 st.markdown("""
 ### **Workflow Files**
-- `.github/workflows/ci-cd-pipeline.yml` - Main CI/CD workflow
-- `.github/workflows/README.md` - Workflow documentation
+- `.github/workflows/ci-cd-pipeline.yml` - Main CI/CD workflow with S3 + ECR
+- `.github/workflows/test.yml` - Standalone test workflow
 
 ### **Test Files**
 - `tests/test_data_processing.py` - Data loading & preprocessing tests
@@ -1281,16 +2084,40 @@ st.markdown("""
 - `tests/create_test_model.py` - Test model generator
 
 ### **Deployment Files**
-- `Dockerfile` - Container image definition
-- `docker-compose.yml` - Local testing
+- `Dockerfile` - API container image definition
+- `Dockerfile.streamlit` - Frontend container image definition
+- `docker-compose.yml` - Local testing with both services
 - `.dockerignore` - Build optimization
-- `ecs-task-definition.json` - ECS configuration
+
+### **Configuration Files**
+- `requirements.txt` - API Python dependencies
+- `requirements_streamlit.txt` - Frontend Python dependencies
+- `pyproject.toml` - Project metadata and tool configuration
+- `.env` - Environment variables (local dev)
+
+### **AWS Resource Scripts**
+- `src/utils/s3_handler.py` - S3 operations (upload/download models)
+- `src/utils/upload_to_s3.py` - Model upload utility
+- `scripts/test_s3_integration.py` - Test S3 connectivity
+
+### **Model Files**
+- `models/churn_model_production.pkl` - Local production model
+- `tests/test_model.pkl` - Test model for CI/CD
+- `S3: s3://churn-project-model/models/churn_model_production.pkl` - Cloud storage
 
 ### **Documentation Files**
-- `GITHUB_SECRETS_GUIDE.md` - Secrets setup guide
-- `CI_CD_SETUP_SUMMARY.md` - Quick start guide
+- `README.md` - Project overview
 - `DEPLOYMENT.md` - Deployment instructions
 - `API_EXAMPLES.md` - API usage examples
+- `streamlit_docs/` - This documentation site
+
+### **Environment Variables** (GitHub Secrets)
+- `AWS_ACCESS_KEY_ID` - AWS credentials
+- `AWS_SECRET_ACCESS_KEY` - AWS credentials
+- `AWS_REGION` - Deployment region (us-east-1)
+- `S3_BUCKET_NAME` - Model storage bucket
+- `ECR_REPOSITORY` - API image repository
+- `ECR_REPOSITORY_STREAMLIT` - Frontend image repository
 """)
 
 st.markdown("---")
@@ -1302,32 +2129,68 @@ st.markdown("""
 ### **What You Get**
 - ✅ **140+ automated tests** covering all functionality
 - ✅ **Complete CI/CD pipeline** with GitHub Actions
-- ✅ **Automated deployment** to Amazon ECR
+- ✅ **S3 model storage** for centralized ML artifacts
+- ✅ **Automated deployment** to Amazon ECR (API + Frontend)
 - ✅ **Security scanning** (dependencies + code + Docker)
 - ✅ **Performance validation** (<100ms latency)
-- ✅ **Zero-downtime deployment** to ECS
+- ✅ **Zero-downtime deployment** to ECS/Fargate
 - ✅ **Full traceability** (commit SHA tags)
 
 ### **Pipeline Guarantees**
 - 🛡️ **Only tested code reaches production**
-- 🚀 **Fast feedback** (~15 minutes)
+- 🚀 **Fast feedback** (~15-18 minutes)
 - 🔒 **Security validated** automatically
 - 📊 **Performance verified** before deploy
-- 🐳 **Container tested** before push
+- 🐳 **Containers tested** before push
 - ☁️ **Deployment automated** on main branch
+- 🗄️ **Model verified** in S3 before deployment
+
+### **AWS Resources Created**
+1. **S3 Bucket**: `churn-project-model`
+   - Stores trained model: `models/churn_model_production.pkl`
+   - Versioned for rollback capability
+   - Accessed by API containers at startup
+
+2. **ECR Repository 1**: `churn-prediction-api`
+   - FastAPI backend container
+   - Loads model from S3
+   - Port 8000
+
+3. **ECR Repository 2**: `churn-prediction-frontend`
+   - Streamlit frontend container
+   - Connects to API backend
+   - Port 8501
 
 ### **Required Setup**
-1. Create AWS ECR repository
-2. Create IAM user with ECR permissions
-3. Add GitHub secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-4. Create test model (`python tests/create_test_model.py`)
-5. Commit workflow files
-6. Push to GitHub
+1. Create S3 bucket (`churn-project-model`)
+2. Upload trained model to S3
+3. Create ECR repositories (API + Frontend)
+4. Create IAM user with S3 + ECR permissions
+5. Add GitHub secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+6. Create test model (`python tests/create_test_model.py`)
+7. Commit workflow files
+8. Push to GitHub
+
+### **Deployment Flow**
+```
+Code Push → Tests (140+) → Build Docker → Verify S3 Model → 
+Push to ECR (API) → Push to ECR (Frontend) → Ready for Production!
+```
 
 ### **Result**
 **Fully automated, production-ready deployment pipeline!** 🎉
 
-Every push to `main` that passes all 140+ tests automatically deploys to AWS ECR, ready for production use!
+Every push to `main` that passes all 140+ tests automatically:
+- ✅ Verifies model exists in S3
+- ✅ Pushes API container to ECR
+- ✅ Pushes Frontend container to ECR
+- ✅ Tags images with commit SHA
+- ✅ Ready for ECS/Fargate deployment
+
+**Complete Stack Ready**:
+- 🗄️ Model: `s3://churn-project-model/models/churn_model_production.pkl`
+- 🐳 API: `<account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-api:latest`
+- 🎨 Frontend: `<account>.dkr.ecr.us-east-1.amazonaws.com/churn-prediction-frontend:latest`
 """)
 
 st.markdown("---")
@@ -1337,10 +2200,13 @@ st.markdown(
     """
 <div style="text-align: center; padding: 2rem; background-color: #F5F5F5; border-radius: 8px;">
     <h3>🚀 CI/CD Pipeline Complete</h3>
-    <p><strong>From Code to Cloud in 15 Minutes</strong></p>
-    <p style="color: #666;">Automated Testing → Docker Build → AWS ECR → Production</p>
+    <p><strong>From Code to Cloud in 15-18 Minutes</strong></p>
+    <p style="color: #666;">Automated Testing → Docker Build → S3 Model Verification → AWS ECR → Production Ready</p>
     <p style="font-size: 0.9rem; margin-top: 1rem;">
-        📊 140+ Tests | 🔒 Security Scanned | ⚡ <100ms Latency | ☁️ AWS Ready
+        📊 140+ Tests | 🗄️ S3 Storage | 🐳 2 ECR Images | 🔒 Security Scanned | ⚡ <100ms Latency | ☁️ AWS Ready
+    </p>
+    <p style="font-size: 0.85rem; margin-top: 0.5rem; color: #888;">
+        Model: S3 | API: ECR | Frontend: ECR | Deployment: ECS/Fargate/EC2
     </p>
 </div>
 """,
